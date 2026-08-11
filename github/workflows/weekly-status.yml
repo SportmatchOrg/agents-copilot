@@ -1,0 +1,105 @@
+name: Status Report semanal
+
+# Informe de avance semanal para la cátedra (Lab 4).
+# Usa un LLM OpenAI-compatible (default Gemini free tier). Corre viernes 17:00 ART (20:00 UTC),
+# commitea el reporte en docs/status-reports/ y postea el resumen en Discord.
+
+on:
+  schedule:
+    - cron: "0 20 * * 5"
+  workflow_dispatch:
+
+permissions:
+  contents: write        # para commitear el reporte
+  pull-requests: read
+
+jobs:
+  weekly-status:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Traer datos de Linear (ciclo activo)
+        env:
+          LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
+        run: |
+          curl -s https://api.linear.app/graphql \
+            -H "Authorization: $LINEAR_API_KEY" \
+            -H "Content-Type: application/json" \
+            -d '{"query":"{ issues(filter:{cycle:{isActive:{eq:true}}}) { nodes { identifier title state{name} estimate completedAt } } }"}' \
+            > linear.json || echo '{"error":"linear no disponible"}' > linear.json
+
+      - name: Traer PRs mergeados de la semana
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh pr list --state merged --limit 50 \
+            --json number,title,mergedAt,url > prs.json || echo '[]' > prs.json
+
+      - name: Armar el prompt
+        run: |
+          {
+            echo "Sos el agente Status Reporter de SportMatch. Generá el informe de avance semanal para la cátedra (Lab 4) en Markdown, en español, con estas secciones:"
+            echo "1) Estado general (RAG 🟢/🟡/🔴 + justificación), 2) Avance de la semana (historias RF-xx completadas con link al PR), 3) Entregables/demo mostrable hoy, 4) Riesgos y blockers activos, 5) Decisiones tomadas, 6) Próxima semana, 7) Métricas (velocity, PRs mergeados, carry-over)."
+            echo "Regla: toda historia 'completada' debe tener su PR mergeado; si no, no está completada. Tono profesional y honesto (la cátedra valora la gestión del desvío, no el maquillaje). Respetá el alcance del MVP."
+            echo ""
+            echo "=== LINEAR (ciclo activo) ==="; cat linear.json
+            echo ""
+            echo "=== PRs MERGEADOS ==="; cat prs.json
+          } > prompt.txt
+
+      - name: Generar reporte (LLM OpenAI-compatible, default Gemini)
+        id: ai
+        env:
+          LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
+          LLM_BASE_URL: ${{ vars.LLM_BASE_URL }}
+          LLM_MODEL: ${{ vars.LLM_MODEL }}
+        run: |
+          OUT=$(bash .github/scripts/llm.sh prompt.txt)
+          {
+            echo 'response<<EOF_LLM'
+            echo "$OUT"
+            echo 'EOF_LLM'
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Guardar y commitear el reporte
+        env:
+          RESPONSE: ${{ steps.ai.outputs.response }}
+        run: |
+          if printf '%s' "$RESPONSE" | grep -q "^LLM_UNAVAILABLE"; then
+            echo "LLM no disponible, no se genera el reporte: $RESPONSE"
+            exit 0
+          fi
+          mkdir -p docs/status-reports
+          FECHA=$(date +%Y-%m-%d)
+          cat > "docs/status-reports/$FECHA.md" <<'EOF'
+          ${{ steps.ai.outputs.response }}
+          EOF
+          git config user.name "sportmatch-bot"
+          git config user.email "bot@sportmatch.local"
+          git add docs/status-reports/
+          git commit -m "docs: status report semanal automático ($FECHA)" || echo "sin cambios"
+          git push || echo "nada para pushear"
+
+      - name: Postear resumen a Discord
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_PROGRESS }}
+        run: |
+          python3 - <<'PY'
+          import json, os, urllib.request
+          full = """${{ steps.ai.outputs.response }}"""
+          if full.startswith("LLM_UNAVAILABLE"):
+              resumen = f"⚠️ Status Report semanal: LLM no disponible ahora mismo, no se generó el reporte de esta semana. ({full})"
+          else:
+              resumen = "📋 Status Report semanal — SportMatch\n" + full[:1500] + "\n… (reporte completo en docs/status-reports/)"
+          data = json.dumps({"content": resumen[:1900]}).encode()
+          req = urllib.request.Request(os.environ["DISCORD_WEBHOOK_URL"], data=data,
+                                       headers={"Content-Type": "application/json", "User-Agent": "Mozilla/5.0 (compatible; SportMatchBot/1.0)"})
+          urllib.request.urlopen(req)
+          PY
+
+# Secrets necesarios: LLM_API_KEY (Gemini u otro OpenAI-compatible),
+#                     LINEAR_API_KEY, DISCORD_WEBHOOK_PROGRESS
+# Variables opcionales: LLM_BASE_URL, LLM_MODEL (ver .github/scripts/llm.sh)

@@ -1,0 +1,99 @@
+name: Curador de contexto (drift AGENTS.md)
+
+# Al hacer push a dev/main, verifica si AGENTS.md quedó desalineado con el
+# repo real (estructura, stack, convenciones). Si detecta drift, abre un
+# issue con la propuesta + avisa por Discord. NO auto-commitea AGENTS.md
+# (regla "Lab4 no codifica": la decisión es humana). LLM OpenAI-compatible (default Gemini).
+
+on:
+  push:
+    branches: [dev, main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  curator:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Recolectar realidad del repo
+        run: |
+          {
+            echo "### Árbol (2 niveles)"; find . -maxdepth 2 -not -path '*/.git/*' | sort | head -100
+            echo ""; echo "### Manifiestos detectados"
+            for f in package.json requirements.txt pom.xml go.mod Dockerfile docker-compose.yml; do
+              [ -f "$f" ] && { echo "--- $f ---"; head -40 "$f"; }
+            done
+            echo ""; echo "### Últimos commits"; git log --oneline -15
+          } > repo.txt
+          cp AGENTS.md agents_actual.md 2>/dev/null || echo "(AGENTS.md no encontrado)" > agents_actual.md
+
+      - name: Armar el prompt
+        run: |
+          {
+            echo "Sos el Curador de contexto de SportMatch. Compará el AGENTS.md actual contra la realidad del repo (abajo) y detectá divergencias en: estructura de carpetas, stack tecnológico, convenciones de commits/branches, y TODOs que ya podrían completarse."
+            echo "Si NO hay divergencias relevantes, respondé EXACTAMENTE con la primera línea: SIN CAMBIOS"
+            echo "Si HAY divergencias, respondé con: primera línea 'DRIFT DETECTADO', y debajo un cuerpo de issue en Markdown (español) listando cada divergencia con evidencia (archivo/sección) y el cambio propuesto para AGENTS.md. NO reescribas el archivo: proponé. Ignorá cosas 'Fuera de alcance' (AGENTS.md §1)."
+            echo ""
+            echo "=== AGENTS.md ACTUAL ==="; cat agents_actual.md
+            echo ""
+            echo "=== REALIDAD DEL REPO ==="; cat repo.txt
+          } > prompt.txt
+
+      - name: Evaluar drift (LLM OpenAI-compatible, default Gemini)
+        id: ai
+        env:
+          LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
+          LLM_BASE_URL: ${{ vars.LLM_BASE_URL }}
+          LLM_MODEL: ${{ vars.LLM_MODEL }}
+        run: |
+          OUT=$(bash .github/scripts/llm.sh prompt.txt)
+          {
+            echo 'response<<EOF_LLM'
+            echo "$OUT"
+            echo 'EOF_LLM'
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Abrir issue + Discord si hay drift
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_PLANNING }}
+          RESPONSE: ${{ steps.ai.outputs.response }}
+        run: |
+          if printf '%s' "$RESPONSE" | grep -q "^LLM_UNAVAILABLE"; then
+            echo "LLM no disponible, aviso sin evaluar drift: $RESPONSE"
+            python3 - <<PY
+          import json, os, urllib.request
+          msg = "⚠️ Curador de contexto: LLM no disponible ahora mismo, no se evaluó drift en este run. (${RESPONSE})"
+          data = json.dumps({"content": msg[:1900]}).encode()
+          hook = os.environ.get("DISCORD_WEBHOOK_URL","")
+          if hook:
+              req = urllib.request.Request(hook, data=data, headers={"Content-Type":"application/json","User-Agent":"Mozilla/5.0 (compatible; SportMatchBot/1.0)"})
+              urllib.request.urlopen(req)
+          PY
+            exit 0
+          fi
+          if printf '%s' "$RESPONSE" | head -1 | grep -q "SIN CAMBIOS"; then
+            echo "AGENTS.md alineado, sin acción."
+            exit 0
+          fi
+          printf '%s' "$RESPONSE" > issue.md
+          URL=$(gh issue create --title "📄 AGENTS.md desactualizado (drift detectado)" \
+                --body-file issue.md --label documentation 2>/dev/null || echo "")
+          python3 - <<PY
+          import json, os, urllib.request
+          msg = "📄 El Curador de contexto detectó que AGENTS.md quedó desactualizado. Issue: ${URL}"
+          data = json.dumps({"content": msg[:1900]}).encode()
+          hook = os.environ.get("DISCORD_WEBHOOK_URL","")
+          if hook:
+              req = urllib.request.Request(hook, data=data, headers={"Content-Type":"application/json","User-Agent":"Mozilla/5.0 (compatible; SportMatchBot/1.0)"})
+              urllib.request.urlopen(req)
+          PY
+
+# Secrets: LLM_API_KEY (Gemini u otro OpenAI-compatible), DISCORD_WEBHOOK_PLANNING
+# Variables opcionales: LLM_BASE_URL, LLM_MODEL (ver .github/scripts/llm.sh)
+# La label "documentation" debe existir en el repo (o quitá --label).
