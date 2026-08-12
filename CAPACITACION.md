@@ -4,11 +4,12 @@ Objetivo: que cada uno de los **3 devs** entienda para qué sirve cada tecnolog�
 
 **Por qué la misma tarea para los 3:** además del review del agente, se **comentan los PRs entre ellos** (practican hacer code review, no solo recibirlo) y ven **soluciones distintas al mismo problema**. Sobre el "pisarse": no es problema — el objetivo es interactuar y revisarse, no entregar código. No se intenta mergear los 3 (ahí sí habría conflictos); se mergea **uno solo como referencia** y los otros dos se cierran.
 
-**El flujo, en 4 bloques:**
+**El flujo, en 5 bloques:**
 1. Intro teórica corta (1 recurso por tecnología + por qué la elegimos)
 2. Levantar el repo con Docker
-3. Implementar la feature completa (los 3, la misma)
-4. Branch + PR + cross-review + ver los agentes
+3. Tarea previa: **un solo dev** instala los agentes en la rama base
+4. Implementar la feature completa (los 3, la misma)
+5. Branch + PR + cross-review + ver los agentes
 
 ---
 
@@ -48,37 +49,119 @@ Como ya vienen usando **JavaScript**, acá lo importante es ver **qué agrega TS
 
 ## Bloque 2 — Levantar el repo (con el stack, no vacío)
 
-Se usa un **starter que ya combina el stack**, parecido a lo que van a construir:
+El repo de práctica es **[`SportmatchOrg/sportmatch-onboarding`](https://github.com/SportmatchOrg/sportmatch-onboarding)**: una copia de un starter que ya combina el stack (Nest.js + Next.js + Prisma + Tailwind en un monorepo), con Docker agregado encima.
 
-- **Repo base:** [nest-next-prisma-monorepo-starter](https://github.com/AceTheNinja/nest-next-prisma-monorepo-starter) — Nest.js + Next.js + Prisma + Tailwind en un monorepo.
+**Lo único que hay que tener instalado es Docker Desktop.** Ni Node, ni yarn, ni Postgres.
 
-**Pasos:**
-1. Un manager forkea el starter a un repo del equipo (ej. `sportmatch-playground`), instala el paquete de agentes (`.github/` — ver `README.md`), carga los secrets de test y crea **un issue en Linear** con la feature (la misma para los 3).
-2. Cada dev clona el repo.
-3. `docker compose up` (o el comando que indique el README del starter) → confirmar que **front, back y Postgres** levantan y la app abre en el navegador.
-4. Correr las migraciones/seed de Prisma si el starter lo pide.
+```bash
+git clone https://github.com/SportmatchOrg/sportmatch-onboarding.git
+cd sportmatch-onboarding
+docker compose up
+```
 
-> Meta de este bloque: que vean el entorno completo corriendo con **un comando**, y entiendan qué contenedor es cada cosa.
+La primera vez tarda unos minutos porque construye la imagen e instala las dependencias. Cuando termina:
+
+| Servicio | URL | Qué es |
+|----------|-----|--------|
+| `web` | http://localhost:3001 | Frontend, Next.js |
+| `api` | http://localhost:3008 | Backend, NestJS |
+| `db` | `localhost:5432` | Postgres (`root` / `root` / base `db`) |
+
+Hay un cuarto contenedor, `migrate`, que aplica las migraciones de Prisma y se apaga solo. Que aparezca como *Exited (0)* está bien.
+
+**Para confirmar que quedó todo bien:** abrí http://localhost:3001 en el navegador y corré los tests del backend, que tienen que dar 2 en verde.
+
+```bash
+docker compose exec -w /app/apps/api api npx jest
+```
+
+> Meta de este bloque: que vean el entorno completo corriendo con **un comando**, y entiendan qué contenedor es cada cosa. El resto de los comandos (Prisma, logs, reconstruir) están en el README del repo.
 
 ---
 
-## Bloque 3 — La feature (la misma para los 3, end-to-end)
+## Bloque 3 — Tarea previa: instalar los agentes (**un solo dev**)
+
+Esta la hace **uno solo**, antes que las features. Los otros dos, mientras tanto, siguen con el Bloque 2 en su máquina.
+
+**Por qué uno solo y por qué antes:** GitHub solo dispara un workflow si el archivo ya está en la **rama base**. Si cada dev instalara los agentes en su propia rama, no se ejecutaría ninguno. Va una vez sobre `dev`, mergeado, y a partir de ahí corre sobre los PRs de los tres.
+
+Es la primera vuelta completa al flujo de trabajo del equipo — rama, commit, PR, merge — con un cambio chico y sin riesgo. Sirve de ensayo antes de la feature.
+
+### Qué hacer
+
+**1. Clonar los dos repos, uno al lado del otro**
+
+`agents-copilot` es la fuente del paquete de agentes; `sportmatch-onboarding` es el destino.
+
+```bash
+git clone https://github.com/SportmatchOrg/agents-copilot.git
+git clone https://github.com/SportmatchOrg/sportmatch-onboarding.git
+```
+
+**2. Correr el instalador**
+
+Copia `AGENTS.md` a la raíz y el contenido de `github/` a `.github/`.
+
+```bash
+bash agents-copilot/install.sh sportmatch-onboarding
+```
+
+**3. Rama, commit y PR contra `dev`**
+
+```bash
+cd sportmatch-onboarding
+git checkout -b chore/agentes-ia
+git add AGENTS.md .github
+git commit -m "chore: agregar agentes de IA"
+git push -u origin chore/agentes-ia
+```
+
+Abrí el PR hacia `dev` desde GitHub y **mergealo**. En este PR todavía no van a comentar los agentes: recién quedan activos una vez mergeados.
+
+**4. Avisar al manager**
+
+Los agentes necesitan los secrets cargados en el repo (`LLM_API_KEY`, `LINEAR_API_KEY` y los tres webhooks de Discord). Eso lo hace el manager una sola vez, no va en el código. Avisale cuando el PR esté mergeado.
+
+**5. Verificar que quedaron activos**
+
+En la pestaña **Actions** del repo tienen que aparecer los 5 workflows listados. Si aparecen, los tres ya pueden abrir PRs y los agentes van a comentar.
+
+### Qué queda instalado
+
+| Archivo | Para qué |
+|---------|----------|
+| `AGENTS.md` | Contexto del proyecto que leen los agentes y Copilot |
+| `.github/copilot-instructions.md` | Reglas de code review para Copilot |
+| `.github/chatmodes/` | Los modos de chat de Copilot en el editor |
+| `.github/workflows/` | Los 5 agentes automáticos |
+| `.github/scripts/llm.sh` | La llamada al LLM que usan los workflows |
+
+---
+
+## Bloque 4 — La feature (la misma para los 3, end-to-end)
 
 Todos implementan **la misma historia completa**, tocando las **tres capas**. Es chica a propósito y está calcada de SportMatch.
 
 ### Feature: "Partidos" — listar partidos de punta a punta
 
 **1. Base de datos (Prisma + PostgreSQL)**
-- Agregá al modelo de Prisma una entidad `Partido` (`id`, `deporte`, `fecha`, `cupo`).
-- Corré una **migración** de Prisma.
+- Agregá una entidad `Partido` (`id`, `deporte`, `fecha`, `cupo`) al esquema, en `packages/database/prisma/schema.prisma`.
+- Corré una **migración** de Prisma:
+  ```bash
+  docker compose exec -w /app/packages/database api npx prisma migrate dev --name add_partido
+  ```
 - Sembrá 2-3 partidos de ejemplo (seed).
 
 **2. Backend (NestJS + REST) — CRUD de partidos**
-- Creá un **módulo** `partidos` (controller + service) con `GET /partidos` (listar), `POST /partidos` (crear, con DTO validado) y `DELETE /partidos/:id` (eliminar), usando Prisma.
-- Cuando funcionen, **generá tests** sobre esos endpoints y **corrélos** (NestJS usa Jest: `npm test`), y probá los endpoints con **Postman**. Es un adelanto de lo que vamos a pedir en tickets reales.
+- El backend está en `apps/api`. Creá un **módulo** `partidos` (controller + service) con `GET /partidos` (listar), `POST /partidos` (crear, con DTO validado) y `DELETE /partidos/:id` (eliminar), usando Prisma. Ya hay un `PrismaService` en `apps/api/src/modules/prisma` para inyectar.
+- Cuando funcionen, **generá tests** sobre esos endpoints y **corrélos** (NestJS usa Jest), y probá los endpoints con **Postman** contra `http://localhost:3008`. Es un adelanto de lo que vamos a pedir en tickets reales.
+  ```bash
+  docker compose exec -w /app/apps/api api npx jest
+  ```
 
 **3. Frontend (Next.js + Tailwind) — vista de partidos tipo swipe**
-- Creá la ruta `/partidos` (App Router) que haga fetch a `GET /partidos`.
+- El frontend está en `apps/web`. Creá la ruta `/partidos` (App Router) que haga fetch a `GET /partidos`.
+- **Ojo con la URL de la API:** desde el navegador es `http://localhost:3008`. Si el fetch corre del lado del servidor (Server Component), el contenedor `web` tiene que llamar a `http://api:3008` — dentro de la red de Docker cada servicio se resuelve por su nombre, no por `localhost`.
 - Mostrá cada partido pensado como **card**, con navegación tipo **swipe** (descartar / abrir siguiente). Libertad total para el diseño: buscá que quede **visualmente atractivo** (esto anticipa la Vista Swipe del proyecto, WBS 7.2).
 - Mantené los estados de "cargando" y "sin partidos".
 
@@ -88,7 +171,7 @@ Todos implementan **la misma historia completa**, tocando las **tres capas**. Es
 
 ---
 
-## Bloque 4 — Branch → commit → PR → cross-review + agentes
+## Bloque 5 — Branch → commit → PR → cross-review + agentes
 
 Acá está el corazón: interactuar con git, **revisarse entre ellos** y ver el efecto de los agentes.
 
@@ -117,6 +200,8 @@ Acá está el corazón: interactuar con git, **revisarse entre ellos** y ver el 
 
 - [ ] Vi el intro de cada tecnología y leí el "por qué lo elegimos"
 - [ ] Levanté el repo con `docker compose up` y abrió en el navegador
+- [ ] Los tests del backend me dieron en verde
+- [ ] (Solo el dev que le tocó) Instalé los agentes y los mergeé a `dev`
 - [ ] Implementé la feature completa: modelo + migración (Prisma), endpoint (NestJS), pantalla (Next.js + Tailwind)
 - [ ] Cumple el criterio de aceptación end-to-end
 - [ ] Creé mi rama, commiteé con la convención y abrí el PR
