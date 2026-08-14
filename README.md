@@ -79,7 +79,7 @@ git add AGENTS.md .github && git commit -m "chore: agentes de IA (Copilot)"
 | Secret | Para qué | Dónde |
 |--------|----------|-------|
 | `LLM_API_KEY` | Inferencia (genera los textos) | Google AI Studio → Get API key (gratis) |
-| `LINEAR_API_KEY` | Leer el ciclo/sprint activo (agentes 9 y 10) | Linear → Settings → API → Personal API key |
+| `LINEAR_API_KEY` | Leer el ciclo/sprint activo (agentes 9 y 10) **y** comentar/crear tickets desde el DoD checker (agente 7) | Linear → Settings → API → Personal API key |
 | `DISCORD_WEBHOOK_QA` | Canal de QA/preview: DoD checker y traductor a negocio | Discord → canal → Integraciones → Webhooks |
 | `DISCORD_WEBHOOK_PLANNING` | Canal de planning: curador de contexto | Discord → canal → Integraciones → Webhooks |
 | `DISCORD_WEBHOOK_PROGRESS` | Canal de progreso: sprint health y status semanal | Discord → canal → Integraciones → Webhooks |
@@ -87,6 +87,17 @@ git add AGENTS.md .github && git commit -m "chore: agentes de IA (Copilot)"
 Las notificaciones van enrutadas por canal, así que son **tres** webhooks distintos. Si querés todo en un solo canal, poné la misma URL en los tres.
 
 `GITHUB_TOKEN` ya viene incluido.
+
+### Integración con Linear (agente 7 — DoD checker)
+
+Con `LINEAR_API_KEY` configurado, `.github/scripts/linear.sh` hace más que leer:
+
+- Al abrirse/actualizarse un PR, el DoD checker extrae el identificador de Linear del **nombre de la rama** (la convención que Linear genera solo al copiar "Branch name" desde un issue, ej. `santos/spm-42-login`), busca ese ticket por API y usa su `description` real como fuente de verdad de los criterios de aceptación — en vez de que el LLM adivine el RF desde el título del PR.
+- El veredicto del DoD se postea como **comentario en ese ticket de Linear** (además del comentario en el PR), no solo como texto sugerido.
+- Si el PR **no** referencia ningún ticket, es un problema de trazabilidad (AGENTS.md §8.5). Si además configurás la variable `LINEAR_TEAM_KEY` (el prefijo del equipo, ej. `SPM`), el DoD checker **crea** un ticket nuevo señalándolo, en vez de solo mencionarlo en el comentario del PR.
+- Sin `LINEAR_API_KEY`, este paso se omite solo (el resto del chequeo de DoD sigue funcionando igual).
+
+Esto depende de que la integración nativa GitHub↔Linear esté conectada en el workspace (Linear → Settings → Integrations → GitHub) para que las ramas/PRs usen esa convención de nombres.
 
 > **Cambiar de proveedor de LLM sin tocar los workflows:** el script `llm.sh` es *provider-agnostic*. Para usar Groq, OpenRouter, OpenAI, etc., seteá dos **variables** de repo (*Settings → Secrets and variables → Actions → Variables*): `LLM_BASE_URL` y `LLM_MODEL`, y poné la key de ese proveedor en el secret `LLM_API_KEY`. Los valores por proveedor están documentados en la cabecera de `.github/scripts/llm.sh`.
 
