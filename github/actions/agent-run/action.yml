@@ -1,0 +1,97 @@
+name: "agent-run"
+description: "Corre un prompt contra el LLM y deja la respuesta en un archivo del workspace."
+
+# ---------------------------------------------------------------------------
+# Por qué existe: los 7 workflows repetían el mismo bloque de 3 pasos
+# (llamar a llm.sh → volcar la salida a GITHUB_OUTPUT con un heredoc de
+# delimitador fijo → chequear el sentinel con grep en CADA paso siguiente).
+#
+# Dos problemas que eso traía y que acá desaparecen:
+#   1. La respuesta del LLM viajaba por `${{ steps.ai.outputs.response }}` y se
+#      interpolaba dentro de scripts Python/bash. Como el LLM lee diffs de PRs
+#      y tickets de Linear (input no confiable), un `"""` o una línea `EOF` en
+#      esa salida rompía el script — o peor, ejecutaba comandos en el runner.
+#      Ahora la respuesta nunca sale de un archivo del workspace.
+#   2. El delimitador `EOF_LLM` era fijo: una respuesta que lo contuviera
+#      rompía el paso o inyectaba outputs.
+#
+# Salidas:
+#   available = "true" si el LLM respondió, "false" si no estaba disponible.
+#   reason    = motivo corto cuando available=false (para avisar por Discord).
+# El texto generado queda en `output-file` (default: response.md).
+# ---------------------------------------------------------------------------
+
+inputs:
+  prompt-file:
+    description: "Archivo con el prompt a enviar"
+    required: true
+  output-file:
+    description: "Archivo donde se escribe la respuesta del LLM"
+    required: false
+    default: "response.md"
+  api-key:
+    description: "LLM_API_KEY (secret)"
+    required: true
+  base-url:
+    description: "LLM_BASE_URL (variable, opcional). Vacío = Gemini free tier"
+    required: false
+    default: ""
+  model:
+    description: "LLM_MODEL (variable, opcional). Vacío = gemini-2.5-flash"
+    required: false
+    default: ""
+
+outputs:
+  available:
+    description: "'true' si el LLM respondió; 'false' si no estaba disponible"
+    value: ${{ steps.run.outputs.available }}
+  reason:
+    description: "Motivo cuando available='false'"
+    value: ${{ steps.run.outputs.reason }}
+
+runs:
+  using: composite
+  steps:
+    - id: run
+      shell: bash
+      env:
+        LLM_API_KEY: ${{ inputs.api-key }}
+        LLM_BASE_URL: ${{ inputs.base-url }}
+        LLM_MODEL: ${{ inputs.model }}
+        PROMPT_FILE: ${{ inputs.prompt-file }}
+        OUT_FILE: ${{ inputs.output-file }}
+      run: |
+        set -uo pipefail
+
+        if [ -z "${LLM_API_KEY:-}" ]; then
+          echo "available=false" >> "$GITHUB_OUTPUT"
+          echo "reason=falta el secret LLM_API_KEY" >> "$GITHUB_OUTPUT"
+          echo "::warning::Falta el secret LLM_API_KEY: el agente no puede correr."
+          exit 0
+        fi
+
+        bash "$GITHUB_WORKSPACE/.github/scripts/llm.sh" "$PROMPT_FILE" > "$OUT_FILE"
+
+        # llm.sh siempre sale 0: o devolvió texto, o el sentinel en la 1ª línea.
+        if head -n1 "$OUT_FILE" | grep -q '^LLM_UNAVAILABLE'; then
+          REASON="$(head -n1 "$OUT_FILE" | tr -d '\r\n' | cut -c1-300)"
+          {
+            echo "available=false"
+            echo "reason=$REASON"
+          } >> "$GITHUB_OUTPUT"
+          echo "::warning::LLM no disponible: $REASON"
+          exit 0
+        fi
+
+        if [ ! -s "$OUT_FILE" ]; then
+          {
+            echo "available=false"
+            echo "reason=el LLM devolvió una respuesta vacía"
+          } >> "$GITHUB_OUTPUT"
+          echo "::warning::El LLM devolvió una respuesta vacía."
+          exit 0
+        fi
+
+        echo "available=true" >> "$GITHUB_OUTPUT"
+        echo "reason=" >> "$GITHUB_OUTPUT"
+        echo "Respuesta del LLM guardada en $OUT_FILE ($(wc -c < "$OUT_FILE") bytes)."

@@ -27,6 +27,8 @@ permissions:
 jobs:
   curator:
     runs-on: ubuntu-latest
+    env:
+      DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_PLANNING }}
     steps:
       - uses: actions/checkout@v4
 
@@ -58,19 +60,25 @@ jobs:
 
       - name: Evaluar drift (LLM OpenAI-compatible, default Gemini)
         id: ai
+        uses: ./.github/actions/agent-run
+        with:
+          prompt-file: prompt.txt
+          output-file: response.md
+          api-key: ${{ secrets.LLM_API_KEY }}
+          base-url: ${{ vars.LLM_BASE_URL }}
+          model: ${{ vars.LLM_MODEL }}
+
+      - name: Avisar que el LLM no estaba disponible
+        if: steps.ai.outputs.available != 'true'
         env:
-          LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
-          LLM_BASE_URL: ${{ vars.LLM_BASE_URL }}
-          LLM_MODEL: ${{ vars.LLM_MODEL }}
+          REASON: ${{ steps.ai.outputs.reason }}
         run: |
-          OUT=$(bash .github/scripts/llm.sh prompt.txt)
-          {
-            echo 'response<<EOF_LLM'
-            echo "$OUT"
-            echo 'EOF_LLM'
-          } >> "$GITHUB_OUTPUT"
+          { printf '⚠️ Curador de contexto: LLM no disponible ahora mismo, no se evaluó drift en este run.\n'
+            printf '%s\n' "$REASON"; } > msg.md
+          bash .github/scripts/notify.sh msg.md
 
       - name: Asegurar que existan las labels usadas (idempotente)
+        if: steps.ai.outputs.available == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -78,35 +86,17 @@ jobs:
           gh label create "agente:context-curator" --color 5319e7 --description "Generado por el agente Curador de contexto (para dedup)" 2>/dev/null || true
 
       - name: Abrir o actualizar issue + Discord si hay drift
+        if: steps.ai.outputs.available == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_PLANNING }}
-          RESPONSE: ${{ steps.ai.outputs.response }}
         run: |
-          notify() {
-            python3 - "$1" <<'PY'
-          import json, os, sys, urllib.request
-          msg = sys.argv[1]
-          data = json.dumps({"content": msg[:1900]}).encode()
-          hook = os.environ.get("DISCORD_WEBHOOK_URL","")
-          if hook:
-              req = urllib.request.Request(hook, data=data, headers={"Content-Type":"application/json","User-Agent":"Mozilla/5.0 (compatible; SportMatchBot/1.0)"})
-              urllib.request.urlopen(req)
-          PY
-          }
-
-          if printf '%s' "$RESPONSE" | grep -q "^LLM_UNAVAILABLE"; then
-            echo "LLM no disponible, aviso sin evaluar drift: $RESPONSE"
-            notify "⚠️ Curador de contexto: LLM no disponible ahora mismo, no se evaluó drift en este run. ($RESPONSE)"
-            exit 0
-          fi
-
           # El LLM puede devolver el JSON envuelto en ```json ... ``` pese a la instrucción; se lo toleramos.
-          printf '%s' "$RESPONSE" | sed -e '/^```/d' > verdict.json
+          sed -e '/^```/d' response.md > verdict.json
           if ! jq -e . verdict.json >/dev/null 2>&1; then
             echo "El LLM no devolvió JSON válido, no se puede decidir drift/sin-cambios de forma confiable. Respuesta cruda:"
             cat verdict.json
-            notify "⚠️ Curador de contexto: el LLM devolvió un formato inesperado, no se pudo evaluar drift en este run."
+            echo '⚠️ Curador de contexto: el LLM devolvió un formato inesperado, no se pudo evaluar drift en este run.' > msg.md
+            bash .github/scripts/notify.sh msg.md
             exit 0
           fi
 
@@ -125,16 +115,22 @@ jobs:
             gh issue edit "$EXISTING" --body-file issue.md
             URL=$(gh issue view "$EXISTING" --json url -q .url)
             echo "Issue #$EXISTING actualizado (ya existía, se evita duplicar): $URL"
-            notify "📄 El Curador de contexto actualizó el issue de drift existente. Issue: $URL"
+            printf '📄 El Curador de contexto actualizó el issue de drift existente. Issue: %s\n' "$URL" > msg.md
           else
             URL=$(gh issue create --title "📄 AGENTS.md desactualizado (drift detectado)" \
                   --body-file issue.md --label documentation --label "agente:context-curator" 2>/dev/null || echo "")
+            if [ -z "$URL" ]; then
+              echo "::error::No se pudo crear el issue de drift (¿permisos issues: write, o labels inexistentes?)."
+              printf '⚠️ Curador de contexto: detectó drift pero no pudo crear el issue en GitHub (revisar permisos).\n' > msg.md
+              bash .github/scripts/notify.sh msg.md
+              exit 1
+            fi
             echo "Issue nuevo creado: $URL"
-            notify "📄 El Curador de contexto detectó que AGENTS.md quedó desactualizado. Issue: $URL"
+            printf '📄 El Curador de contexto detectó que AGENTS.md quedó desactualizado. Issue: %s\n' "$URL" > msg.md
           fi
+          bash .github/scripts/notify.sh msg.md
 
 # Secrets: LLM_API_KEY (Gemini u otro OpenAI-compatible), DISCORD_WEBHOOK_PLANNING
 # Variables opcionales: LLM_BASE_URL, LLM_MODEL (ver .github/scripts/llm.sh)
-# Las labels "documentation" y "agente:context-curator" deben existir en el
-# repo (creálas una vez con `gh label create`, o quitá los --label si no las
-# querés usar — pero sin "agente:context-curator" se pierde el dedup).
+# Las labels "documentation" y "agente:context-curator" se crean solas en cada
+# run (paso idempotente); sin "agente:context-curator" se perdería el dedup.

@@ -19,83 +19,68 @@ permissions:
 jobs:
   dor:
     runs-on: ubuntu-latest
+    env:
+      DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_PLANNING }}
     steps:
       - uses: actions/checkout@v4
 
       - name: Traer issues del backlog sin ciclo asignado
-        run: |
-          curl -s https://api.linear.app/graphql \
-            -H "Authorization: ${LINEAR_API_KEY}" \
-            -H "Content-Type: application/json" \
-            -d '{"query":"{ issues(filter:{cycle:{null:true}, state:{type:{in:[\"backlog\",\"unstarted\"]}}}, first: 25) { nodes { identifier title description estimate state{name} labels{nodes{name}} } } }"}' \
-            > linear.json || echo '{"error":"linear no disponible"}' > linear.json
+        id: linear
         env:
           LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
-
-      - name: Detectar si Linear no devolvió datos
-        id: linear_status
         run: |
-          if jq -e '.errors, .error' linear.json >/dev/null 2>&1; then
-            echo "estado=error_api" >> "$GITHUB_OUTPUT"
-          elif [ "$(jq -r '.data.issues.nodes | length' linear.json 2>/dev/null)" = "0" ]; then
-            echo "estado=sin_backlog" >> "$GITHUB_OUTPUT"
-          else
-            echo "estado=ok" >> "$GITHUB_OUTPUT"
-          fi
+          bash .github/scripts/linear.sh backlog-unscheduled > linear.json
+          echo "estado=$(jq -r '.status // "error"' linear.json)" >> "$GITHUB_OUTPUT"
 
       - name: Armar el prompt
         env:
-          LINEAR_ESTADO: ${{ steps.linear_status.outputs.estado }}
+          LINEAR_ESTADO: ${{ steps.linear.outputs.estado }}
         run: |
           {
             echo "Sos el agente Definition of Ready de SportMatch. Con los tickets del backlog de Linear de abajo (todavía sin ciclo asignado), evaluá cuáles NO están listos para entrar al próximo sprint."
             if [ "$LINEAR_ESTADO" != "ok" ]; then
-              echo "IMPORTANTE: Linear no devolvió tickets (estado='$LINEAR_ESTADO'). No inventes un digest: decí explícitamente que no hay datos y por qué (sin backlog pendiente, o falló la API)."
+              echo "IMPORTANTE: Linear no devolvió tickets (status='$LINEAR_ESTADO': 'empty' = no hay backlog pendiente, 'error' = falló la API y el campo 'message' dice por qué). No inventes un digest: decí explícitamente que no hay datos y por qué."
             else
-              echo "Por cada ticket evaluá: 1) ¿tiene criterios de aceptación claros y verificables (no solo un título vago)? 2) ¿está asociado a un RF (RF-01..RF-06)? 3) ¿tiene estimación? 4) ¿alcance acotado a un sprint, o debería partirse?"
+              echo "Por cada ticket evaluá: 1) ¿tiene criterios de aceptación claros y verificables (no solo un título vago)? 2) ¿está asociado a un RF de la tabla de abajo? 3) ¿tiene estimación? 4) ¿alcance acotado a un sprint, o debería partirse?"
               echo "Reportá SOLO los tickets con algún problema (no listes los que están OK, sería ruido). Agrupá por severidad: 🔴 sin AC / sin RF (bloqueante), 🟡 sin estimar o alcance dudoso."
             fi
             echo "Formato de salida (máx 15 líneas, español), listo para postear en Discord:"
             echo "📋 Definition of Ready — SportMatch — <fecha> | N tickets revisados, M con problemas | lista de tickets problemáticos con su identifier y qué falta | Si todos están OK, decilo en una línea y listo."
             echo "Es una señal para el PM antes de planning, no una crítica al equipo."
             echo ""
-            echo "=== BACKLOG SIN CICLO (estado=$LINEAR_ESTADO) ==="; cat linear.json
+            echo "=== REQUERIMIENTOS FUNCIONALES (AGENTS.md) ==="
+            bash .github/scripts/agents-section.sh 2
+            echo ""
+            echo "=== BACKLOG SIN CICLO (status=$LINEAR_ESTADO) ==="; cat linear.json
           } > prompt.txt
 
       - name: Generar el digest (LLM OpenAI-compatible, default Gemini)
         id: ai
-        env:
-          LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
-          LLM_BASE_URL: ${{ vars.LLM_BASE_URL }}
-          LLM_MODEL: ${{ vars.LLM_MODEL }}
-        run: |
-          OUT=$(bash .github/scripts/llm.sh prompt.txt)
-          {
-            echo 'response<<EOF_LLM'
-            echo "$OUT"
-            echo 'EOF_LLM'
-          } >> "$GITHUB_OUTPUT"
+        uses: ./.github/actions/agent-run
+        with:
+          prompt-file: prompt.txt
+          output-file: response.md
+          api-key: ${{ secrets.LLM_API_KEY }}
+          base-url: ${{ vars.LLM_BASE_URL }}
+          model: ${{ vars.LLM_MODEL }}
 
       - name: Postear a Discord
+        if: always()
         env:
-          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_PLANNING }}
+          AVAILABLE: ${{ steps.ai.outputs.available }}
+          REASON: ${{ steps.ai.outputs.reason }}
         run: |
-          python3 - <<'PY'
-          import json, os, urllib.request
-          resp = """${{ steps.ai.outputs.response }}"""
-          if resp.startswith("LLM_UNAVAILABLE"):
-              msg = f"⚠️ Definition of Ready: LLM no disponible ahora mismo, no se generó el digest de esta semana. ({resp})"
-          else:
-              msg = resp
-          data = json.dumps({"content": msg[:1900]}).encode()
-          req = urllib.request.Request(os.environ["DISCORD_WEBHOOK_URL"], data=data,
-                                       headers={"Content-Type": "application/json", "User-Agent": "Mozilla/5.0 (compatible; SportMatchBot/1.0)"})
-          urllib.request.urlopen(req)
-          PY
+          if [ "$AVAILABLE" = "true" ]; then
+            cp response.md msg.md
+          else
+            { printf '⚠️ Definition of Ready: LLM no disponible ahora mismo, no se generó el digest de esta semana.\n'
+              printf '%s\n' "$REASON"; } > msg.md
+          fi
+          bash .github/scripts/notify.sh msg.md
 
 # Secrets necesarios: LLM_API_KEY (Gemini u otro OpenAI-compatible),
 #                     LINEAR_API_KEY, DISCORD_WEBHOOK_PLANNING
 # Variables opcionales: LLM_BASE_URL, LLM_MODEL (ver .github/scripts/llm.sh)
 # Asume el ciclo de vida de estados por defecto de Linear (tipos "backlog"/
 # "unstarted"). Si el team renombró/reconfiguró los estados, ajustar el
-# filtro state.type del query GraphQL de arriba.
+# filtro state.type en el subcomando backlog-unscheduled de linear.sh.

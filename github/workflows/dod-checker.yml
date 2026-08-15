@@ -11,7 +11,8 @@ name: DoD checker
 # trazabilidad (AGENTS.md §8.5) en vez de solo mencionarlo en el comentario.
 # Nota: en un PR abierto, "PR mergeada" y "deploy a staging" quedan como
 # PENDIENTE (se confirman recién al mergear/deployar). Verifica el resto.
-# Usa un LLM OpenAI-compatible (default Gemini free tier) vía .github/scripts/llm.sh.
+# Usa un LLM OpenAI-compatible (default Gemini free tier) vía la action
+# compuesta .github/actions/agent-run.
 
 on:
   pull_request:
@@ -30,6 +31,10 @@ permissions:
 jobs:
   dod:
     runs-on: ubuntu-latest
+    env:
+      DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_QA }}
+      PR: ${{ github.event.pull_request.number }}
+      PR_URL: ${{ github.event.pull_request.html_url }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -38,19 +43,35 @@ jobs:
       - name: Recolectar estado del PR (diff, checks, título)
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          PR: ${{ github.event.pull_request.number }}
         run: |
           gh pr view "$PR" --json title,headRefName,mergeable,state > meta.json
           gh pr checks "$PR" > checks.txt 2>/dev/null || echo "(sin checks de CI todavía)" > checks.txt
-          gh pr diff "$PR" > diff.txt || echo "(sin diff)" > diff.txt
+          # Los lockfiles se comen la ventana de contexto sin aportar nada al DoD:
+          # se filtran para que el agente vea código, no 20k líneas de hashes.
+          gh pr diff "$PR" > diff_full.txt || echo "(sin diff)" > diff_full.txt
+          awk '
+            /^diff --git / {
+              skip = ($0 ~ /(package-lock\.json|pnpm-lock\.yaml|yarn\.lock|poetry\.lock|Cargo\.lock|go\.sum)/)
+              if (skip) print "--- (omitido del contexto: lockfile) " $0
+            }
+            !skip
+          ' diff_full.txt > diff.txt
 
       - name: Buscar el ticket de Linear vinculado a la rama
         id: linear_issue
         env:
           LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
+          LINEAR_TEAM_KEY: ${{ vars.LINEAR_TEAM_KEY }}
         run: |
           BRANCH=$(jq -r .headRefName meta.json)
-          IDENT=$(printf '%s' "$BRANCH" | grep -oiE '[a-z]+-[0-9]+' | head -1 | tr '[:lower:]' '[:upper:]')
+          # Si el equipo declaró su prefijo (ej. SPM), buscamos SOLO ese patrón:
+          # con el genérico, una rama "fix/2fa-login" matchea "fix-2" y el agente
+          # sale a buscar un ticket que no existe.
+          if [ -n "${LINEAR_TEAM_KEY:-}" ]; then
+            IDENT=$(printf '%s' "$BRANCH" | grep -oiE "${LINEAR_TEAM_KEY}-[0-9]+" | head -1 | tr '[:lower:]' '[:upper:]')
+          else
+            IDENT=$(printf '%s' "$BRANCH" | grep -oiE '[a-z]{2,5}-[0-9]+' | head -1 | tr '[:lower:]' '[:upper:]')
+          fi
           echo "identifier=$IDENT" >> "$GITHUB_OUTPUT"
           if [ -n "$IDENT" ] && [ -n "${LINEAR_API_KEY:-}" ]; then
             bash .github/scripts/linear.sh find-by-identifier "$IDENT" > linear_issue.json 2>/dev/null
@@ -60,9 +81,16 @@ jobs:
       - name: Armar el prompt
         run: |
           {
-            echo "Sos el DoD Checker de SportMatch. Verificá la Definition of Done de este PR (AGENTS.md §6) con la evidencia de abajo. NO cierres nada: reportás."
-            echo "Criterios: 1) PR mergeada a dev (en un PR abierto => marcá ⏳ PENDIENTE hasta merge), 2) Tests verdes en CI (usá los checks), 3) Criterios de aceptación cumplidos (es el punto clave: si hay un TICKET DE LINEAR abajo, sus campos title/description son la fuente de verdad de los AC; si viene vacío, deducí el RF del título/rama contra AGENTS.md §2 y avisá que es una inferencia), 4) Doc actualizada si aplica, 5) Deploy a staging (⏳ PENDIENTE si no hay evidencia), 6) Sin deuda nueva (TODOs sin ticket, código muerto)."
+            echo "Sos el DoD Checker de SportMatch. Verificá la Definition of Done de este PR con la evidencia de abajo. NO cierres nada: reportás."
+            echo "La Definition of Done y las convenciones del equipo son EXACTAMENTE las de la sección de AGENTS.md que va más abajo: usá esa lista, no una genérica."
+            echo "Aclaraciones de evaluación: en un PR abierto, 'PR mergeada' y 'deploy a staging' se marcan ⏳ PENDIENTE (se confirman al mergear/deployar). Para 'tests verdes' usá los checks de CI. Para los criterios de aceptación (el punto clave): si hay un TICKET DE LINEAR abajo, sus campos title/description son la fuente de verdad; si viene vacío, deducí el RF del título/rama contra AGENTS.md §2 y avisá explícitamente que es una inferencia. Sumá un chequeo de deuda nueva (TODOs sin ticket, código muerto)."
             echo "Salida: tabla por criterio con ✅/❌/⏳/⚪N-A y evidencia, + veredicto final (LISTO PARA CERRAR / NO CUMPLE DoD + qué falta). Español, breve."
+            echo ""
+            echo "=== DEFINITION OF DONE Y CONVENCIONES (AGENTS.md) ==="
+            bash .github/scripts/agents-section.sh 6
+            echo ""
+            echo "=== REQUERIMIENTOS FUNCIONALES (AGENTS.md) ==="
+            bash .github/scripts/agents-section.sh 2
             echo ""
             echo "=== META ==="; cat meta.json
             echo ""
@@ -75,45 +103,35 @@ jobs:
 
       - name: Evaluar DoD (LLM OpenAI-compatible, default Gemini)
         id: ai
-        env:
-          LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
-          LLM_BASE_URL: ${{ vars.LLM_BASE_URL }}
-          LLM_MODEL: ${{ vars.LLM_MODEL }}
-        run: |
-          OUT=$(bash .github/scripts/llm.sh prompt.txt)
-          {
-            echo 'response<<EOF_LLM'
-            echo "$OUT"
-            echo 'EOF_LLM'
-          } >> "$GITHUB_OUTPUT"
+        uses: ./.github/actions/agent-run
+        with:
+          prompt-file: prompt.txt
+          output-file: response.md
+          api-key: ${{ secrets.LLM_API_KEY }}
+          base-url: ${{ vars.LLM_BASE_URL }}
+          model: ${{ vars.LLM_MODEL }}
 
       - name: Comentar el PR
+        if: steps.ai.outputs.available == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          PR: ${{ github.event.pull_request.number }}
-          RESPONSE: ${{ steps.ai.outputs.response }}
         run: |
-          if printf '%s' "$RESPONSE" | grep -q "^LLM_UNAVAILABLE"; then
-            echo "LLM no disponible, no se comenta el PR: $RESPONSE"
-            exit 0
-          fi
-          printf '### ✅ Definition of Done — chequeo automático\n\n%s\n\n---\n*Chequeo asistido por IA. La decisión de cerrar es humana.*' "$RESPONSE" > body.md
-          # --edit-last edita el último comentario de este mismo actor (el bot), nunca uno humano.
-          # Evita spamear un comentario nuevo en cada push al PR.
-          gh pr comment "$PR" --edit-last --create-if-none --body-file body.md
+          {
+            printf '### ✅ Definition of Done — chequeo automático\n\n'
+            cat response.md
+            printf '\n\n---\n*Chequeo asistido por IA. La decisión de cerrar es humana.*\n'
+          } > body.md
+          # Comentario "sticky" marcado por agente: actualiza el suyo en cada push,
+          # sin spamear y sin pisar el comentario del traductor a negocio.
+          bash .github/scripts/pr-comment.sh "$PR" "agente:dod-checker" body.md
 
       - name: Reportar en Linear (comentar el ticket real, o crear uno de seguimiento si no hay)
+        if: steps.ai.outputs.available == 'true'
         env:
           LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
           LINEAR_TEAM_KEY: ${{ vars.LINEAR_TEAM_KEY }}
-          RESPONSE: ${{ steps.ai.outputs.response }}
-          PR_URL: ${{ github.event.pull_request.html_url }}
           IDENT: ${{ steps.linear_issue.outputs.identifier }}
         run: |
-          if printf '%s' "$RESPONSE" | grep -q "^LLM_UNAVAILABLE"; then
-            echo "LLM no disponible, no se toca Linear."
-            exit 0
-          fi
           if [ -z "${LINEAR_API_KEY:-}" ]; then
             echo "Sin secret LINEAR_API_KEY, se omite la integración con Linear."
             exit 0
@@ -123,7 +141,11 @@ jobs:
 
           if [ -n "$ISSUE_ID" ]; then
             # La rama referencia un ticket real: el veredicto queda donde el equipo ya trabaja.
-            printf '### ✅ DoD check automático (desde PR)\n\n%s\n\nPR: %s' "$RESPONSE" "$PR_URL" > linear_comment.md
+            {
+              printf '### ✅ DoD check automático (desde PR)\n\n'
+              cat response.md
+              printf '\n\nPR: %s\n' "$PR_URL"
+            } > linear_comment.md
             URL=$(bash .github/scripts/linear.sh comment "$ISSUE_ID" linear_comment.md)
             [ -n "$URL" ] && echo "Comentario agregado en Linear: $URL" || echo "No se pudo comentar el ticket de Linear (revisar permisos de LINEAR_API_KEY)."
           elif [ -n "$IDENT" ]; then
@@ -133,7 +155,10 @@ jobs:
             TEAM_ID=$(bash .github/scripts/linear.sh team-id "$LINEAR_TEAM_KEY")
             if [ -n "$TEAM_ID" ]; then
               TITLE=$(jq -r .title meta.json)
-              printf '%s\n\nPR: %s\n\n---\n*Creado automáticamente por el DoD checker: este PR no referencia ningún ticket de Linear en el nombre de su rama (problema de trazabilidad, AGENTS.md §8.5). Verificar y asociar el RF correspondiente.*' "$RESPONSE" "$PR_URL" > linear_new_issue.md
+              {
+                cat response.md
+                printf '\n\nPR: %s\n\n---\n*Creado automáticamente por el DoD checker: este PR no referencia ningún ticket de Linear en el nombre de su rama (problema de trazabilidad, AGENTS.md §8.5). Verificar y asociar el RF correspondiente.*\n' "$PR_URL"
+              } > linear_new_issue.md
               CREATED=$(bash .github/scripts/linear.sh create-issue "$TEAM_ID" "⚠️ PR sin ticket: $TITLE" linear_new_issue.md)
               [ -n "$CREATED" ] && echo "Ticket de seguimiento creado en Linear: $CREATED" || echo "No se pudo crear el ticket de Linear (revisar permisos de LINEAR_API_KEY)."
             else
@@ -144,29 +169,25 @@ jobs:
           fi
 
       - name: Avisar por Discord
+        if: always()
         env:
-          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_QA }}
-          RESPONSE: ${{ steps.ai.outputs.response }}
-          PR_URL: ${{ github.event.pull_request.html_url }}
+          REASON: ${{ steps.ai.outputs.reason }}
+          AVAILABLE: ${{ steps.ai.outputs.available }}
         run: |
-          python3 - <<'PY'
-          import json, os, urllib.request
-          resp = os.environ["RESPONSE"]
-          if resp.startswith("LLM_UNAVAILABLE"):
-              msg = f"⚠️ DoD check del PR {os.environ['PR_URL']}: LLM no disponible ahora mismo, no se evaluó DoD en este run. ({resp})"
-          else:
-              msg = f"✅ DoD check del PR {os.environ['PR_URL']}\n\n" + resp
-          data = json.dumps({"content": msg[:1900]}).encode()
-          req = urllib.request.Request(os.environ["DISCORD_WEBHOOK_URL"], data=data,
-                                       headers={"Content-Type": "application/json", "User-Agent": "Mozilla/5.0 (compatible; SportMatchBot/1.0)"})
-          urllib.request.urlopen(req)
-          PY
+          if [ "$AVAILABLE" = "true" ]; then
+            { printf '✅ DoD check del PR %s\n\n' "$PR_URL"; cat response.md; } > msg.md
+          else
+            { printf '⚠️ DoD check del PR %s: LLM no disponible ahora mismo, no se evaluó DoD en este run.\n' "$PR_URL"
+              printf '%s\n' "$REASON"; } > msg.md
+          fi
+          bash .github/scripts/notify.sh msg.md
 
 # Secrets: LLM_API_KEY (Gemini u otro OpenAI-compatible), DISCORD_WEBHOOK_QA,
 #          LINEAR_API_KEY (opcional pero recomendado: sin él se omite toda la
 #          integración con Linear, el resto del chequeo funciona igual).
 # Variables opcionales: LLM_BASE_URL, LLM_MODEL (ver .github/scripts/llm.sh),
 #          LINEAR_TEAM_KEY (ej. "SPM": habilita crear un ticket de seguimiento
-#          cuando el PR no referencia ningún ticket de Linear en su rama).
+#          cuando el PR no referencia ninguno, y hace más preciso el matcheo
+#          del identificador en el nombre de la rama).
 # Convención esperada de nombre de rama para el link automático: la que usa
 # Linear al copiar "Branch name" desde un issue (ej. santos/spm-42-login).

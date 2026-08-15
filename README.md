@@ -46,33 +46,45 @@ Qué evento dispara cada workflow:
 ```
 agentes-copilot/
 ├── AGENTS.md                                → RAÍZ del repo
+├── install.sh                               → instalador (no se copia)
 ├── github/                                  → renombrar a .github/ al instalar
+│   ├── VERSION                              → .github/agents-version
 │   ├── copilot-instructions.md              → .github/copilot-instructions.md
 │   ├── chatmodes/*.chatmode.md              → .github/chatmodes/
 │   ├── skills/pr-review/SKILL.md            → .github/skills/pr-review/SKILL.md
-│   ├── scripts/{llm.sh,linear.sh}           → .github/scripts/
+│   ├── actions/agent-run/action.yml         → .github/actions/agent-run/
+│   ├── scripts/*.sh                         → .github/scripts/
 │   └── workflows/*.yml                      → .github/workflows/
 ```
 
-> La carpeta va sin punto (`github/`) por una limitación de la herramienta que la generó. **Al instalar hay que renombrarla a `.github/`.**
+> La carpeta va sin punto (`github/`) por una limitación de la herramienta que la generó. **Al instalar hay que renombrarla a `.github/`** — `install.sh` lo hace solo.
+
+### Las piezas compartidas (`scripts/` + `actions/`)
+
+Los 7 workflows no hablan con el LLM, Discord ni GitHub por su cuenta: usan estas piezas. Todo lo que sea un bug o una mejora de infraestructura se arregla en **un** lugar, no en siete.
+
+| Pieza | Qué hace |
+|-------|----------|
+| `actions/agent-run` | Corre un prompt contra el LLM y deja la respuesta en `response.md`. Expone `available` (`true`/`false`) y `reason`, así cada workflow degrada con un `if:` en vez de repetir un `grep` del sentinel en cada paso. La respuesta **nunca** se interpola dentro de un script. |
+| `scripts/llm.sh` | La llamada HTTP en sí (provider-agnostic, con reintento en 429/503). |
+| `scripts/notify.sh` | Postea en Discord. Trunca al límite de 2000 chars, reintenta una vez y, si falta el webhook, avisa en el log sin tirar el job. |
+| `scripts/pr-comment.sh` | Comentario "sticky" **por agente** en un PR (marcador HTML invisible). Reemplaza a `gh pr comment --edit-last`, que editaba el último comentario del *usuario* — y como los dos agentes de PR comentan como `github-actions[bot]`, cada uno terminaba pisando el del otro. |
+| `scripts/linear.sh` | API de Linear. Los subcomandos de lectura devuelven un JSON normalizado `{status: ok\|empty\|error, message, nodes}`, así "no hay ciclo activo" y "el token venció" dejan de confundirse. |
+| `scripts/agents-section.sh` | Extrae una sección de `AGENTS.md` para inyectarla en el prompt (los DoD y los RF no se copian a mano en cada workflow). |
 
 ## Instalación
 
-Desde la raíz del repo de SportMatch:
+Desde la raíz del paquete:
 
 ```bash
-cp ruta/agentes-copilot/AGENTS.md ./AGENTS.md
-mkdir -p .github/chatmodes .github/skills/pr-review .github/workflows .github/scripts
-cp ruta/agentes-copilot/github/copilot-instructions.md      .github/
-cp ruta/agentes-copilot/github/chatmodes/*.chatmode.md      .github/chatmodes/
-cp ruta/agentes-copilot/github/skills/pr-review/SKILL.md    .github/skills/pr-review/
-cp ruta/agentes-copilot/github/workflows/*.yml              .github/workflows/
-cp ruta/agentes-copilot/github/scripts/*.sh                 .github/scripts/
-chmod +x .github/scripts/*.sh
-git add AGENTS.md .github && git commit -m "chore: agentes de IA (Copilot)"
+bash install.sh <ruta-al-repo-destino>          # instala o actualiza
+bash install.sh <ruta-al-repo-destino> --dry-run  # ver qué haría, sin escribir
+bash install.sh <ruta-al-repo-destino> --force    # pisar cambios locales
 ```
 
-(O simplemente `bash install.sh <ruta-al-repo-destino>`, que hace exactamente esto.)
+Es idempotente y seguro de re-correr: si un archivo fue editado a mano en el repo destino, **no se pisa** — se deja la versión nueva al lado como `<archivo>.nuevo` y se lista al final para que compares. La versión instalada queda registrada en `.github/agents-version`.
+
+Después, commiteá: `git add AGENTS.md .github && git commit -m "chore: agentes de IA (Copilot)"`.
 
 ## Puesta en marcha
 
@@ -90,7 +102,9 @@ git add AGENTS.md .github && git commit -m "chore: agentes de IA (Copilot)"
 | `DISCORD_WEBHOOK_PLANNING` | Canal de planning: curador de contexto | Discord → canal → Integraciones → Webhooks |
 | `DISCORD_WEBHOOK_PROGRESS` | Canal de progreso: sprint health y status semanal | Discord → canal → Integraciones → Webhooks |
 
-Las notificaciones van enrutadas por canal, así que son **tres** webhooks distintos. Si querés todo en un solo canal, poné la misma URL en los tres.
+Las notificaciones van enrutadas por canal, así que son **tres** webhooks distintos. Si querés todo en un solo canal, poné la misma URL en los tres. Si falta alguno, el workflow lo dice en el log y sigue: no se cae.
+
+Además conviene setear la **variable** `LINEAR_TEAM_KEY` (el prefijo del equipo, ej. `SPM`): sin ella, el DoD checker busca el identificador en el nombre de la rama con un patrón genérico y una rama como `fix/2fa-login` matchea `fix-2`.
 
 `GITHUB_TOKEN` ya viene incluido.
 

@@ -3,46 +3,93 @@
 # linear.sh — Helpers de la API GraphQL de Linear para los workflows de agentes.
 #
 # Requiere el secret LINEAR_API_KEY (Settings → API → Personal API key, o una
-# API key de workspace con permiso de lectura/escritura de issues).
+# API key de workspace con permiso de lectura/escritura de issues). Si falta,
+# los comandos de lectura devuelven status="error" y los de escritura salida
+# vacía: el workflow degrada, no se cae.
 #
-# Subcomandos:
-#   linear.sh find-by-identifier <IDENT>
-#     Busca un issue por su identificador humano (ej. "SPM-42"). Linear
-#     acepta el identificador o el UUID en el mismo campo `id`. Imprime el
-#     JSON del issue (id, identifier, title, description, url, state) o
-#     nada si no existe.
+# Subcomandos de LECTURA (imprimen SIEMPRE un JSON normalizado
+# `{status, message, nodes}` con status ∈ ok | empty | error):
 #
-#   linear.sh team-id <TEAM_KEY>
-#     Resuelve el UUID interno de un equipo a partir de su key (ej. "SPM").
-#     Necesario para crear issues nuevos. Imprime el UUID o nada.
+#   linear.sh active-issues
+#     Issues del ciclo/sprint activo (agentes 9 Sprint Health y 10 Status).
 #
-#   linear.sh comment <ISSUE_ID> <archivo_body.md>
-#     Agrega un comentario a un issue existente (por UUID). Imprime la URL
-#     del comentario creado.
+#   linear.sh backlog-unscheduled
+#     Issues de backlog todavía sin ciclo asignado (agente 5.1 DoR).
 #
-#   linear.sh create-issue <TEAM_ID> <title> <archivo_body.md>
-#     Crea un issue nuevo en el equipo dado. Imprime "<identifier> <url>".
+# Por qué normalizado: antes cada workflow hacía su propio `curl` y clasificaba
+# la respuesta con `jq -e '.errors, .error'`, que toma el exit code del ÚLTIMO
+# output — con `{"errors":[...]}` daba "no hay error" y un token vencido se
+# reportaba como "no hay ciclo activo". La clasificación vive acá, una vez.
 #
-# Ante cualquier error de red/API, estos comandos no rompen el script que
-# los llama: devuelven salida vacía (exit 0) y el workflow decide cómo
-# degradar (loggear y seguir, no bloquear el resto del job).
+# Subcomandos de ESCRITURA / lookup puntual:
+#
+#   linear.sh find-by-identifier <IDENT>   → JSON del issue (o vacío)
+#   linear.sh team-id <TEAM_KEY>           → UUID del equipo (o vacío)
+#   linear.sh comment <ISSUE_ID> <file.md> → URL del comentario creado
+#   linear.sh create-issue <TEAM_ID> <title> <file.md> → "<identifier> <url>"
+#
+# Ante error de red/API estos últimos devuelven salida vacía (exit 0) y el
+# workflow decide cómo degradar (loggear y seguir, no bloquear el job).
 # ---------------------------------------------------------------------------
 set -uo pipefail
 
-: "${LINEAR_API_KEY:?falta el secret LINEAR_API_KEY}"
 API="https://api.linear.app/graphql"
+API_KEY="${LINEAR_API_KEY:-}"
 
 gql() { # $1 = payload JSON completo (query/mutation + variables)
-  curl -sS "$API" \
-    -H "Authorization: $LINEAR_API_KEY" \
+  [ -n "$API_KEY" ] || return 0
+  curl -sS --max-time 60 "$API" \
+    -H "Authorization: $API_KEY" \
     -H "Content-Type: application/json" \
     -d "$1" 2>/dev/null
 }
 
-cmd="${1:?uso: linear.sh <find-by-identifier|team-id|comment|create-issue> ...}"
+# Ejecuta una query de listado y normaliza la respuesta a {status,message,nodes}.
+fetch_issues() { # $1 = query GraphQL
+  if [ -z "$API_KEY" ]; then
+    jq -n '{status:"error", message:"falta el secret LINEAR_API_KEY", nodes:[]}'
+    return 0
+  fi
+
+  local payload resp msg nodes
+  payload="$(jq -n --arg q "$1" '{query:$q}')"
+  resp="$(gql "$payload")"
+
+  if [ -z "$resp" ]; then
+    jq -n '{status:"error", message:"la API de Linear no respondió (red/timeout)", nodes:[]}'
+    return 0
+  fi
+
+  # `has("errors") or has("error")` en vez de `.errors, .error`: un solo output,
+  # así el exit code de jq -e refleja de verdad si hubo error.
+  if printf '%s' "$resp" | jq -e 'has("errors") or has("error")' >/dev/null 2>&1; then
+    msg="$(printf '%s' "$resp" | jq -r '(.errors[0].message // .error // "error desconocido")' 2>/dev/null)"
+    jq -n --arg m "$msg" '{status:"error", message:$m, nodes:[]}'
+    return 0
+  fi
+
+  nodes="$(printf '%s' "$resp" | jq -c '.data.issues.nodes // empty' 2>/dev/null)"
+  if [ -z "$nodes" ]; then
+    jq -n '{status:"error", message:"respuesta inesperada de Linear (sin data.issues)", nodes:[]}'
+  elif [ "$(printf '%s' "$nodes" | jq 'length')" = "0" ]; then
+    jq -n --argjson n "$nodes" '{status:"empty", message:"", nodes:$n}'
+  else
+    jq -n --argjson n "$nodes" '{status:"ok", message:"", nodes:$n}'
+  fi
+}
+
+cmd="${1:?uso: linear.sh <active-issues|backlog-unscheduled|find-by-identifier|team-id|comment|create-issue> ...}"
 shift
 
 case "$cmd" in
+  active-issues)
+    fetch_issues '{ issues(filter:{cycle:{isActive:{eq:true}}}, first:100) { nodes { identifier title state{name} assignee{name} estimate updatedAt completedAt url } } }'
+    ;;
+
+  backlog-unscheduled)
+    fetch_issues '{ issues(filter:{cycle:{null:true}, state:{type:{in:["backlog","unstarted"]}}}, first:25) { nodes { identifier title description estimate state{name} labels{nodes{name}} url } } }'
+    ;;
+
   find-by-identifier)
     IDENT="${1:?falta el identificador, ej. SPM-42}"
     PAYLOAD=$(jq -n --arg id "$IDENT" \

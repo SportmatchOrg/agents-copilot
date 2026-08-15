@@ -33,6 +33,10 @@
 #
 # Uso:  bash llm.sh <archivo_con_el_prompt>
 # Imprime por stdout el texto de la respuesta, o el sentinel LLM_UNAVAILABLE.
+#
+# Nota: los workflows no lo llaman directo, usan la action compuesta
+# `.github/actions/agent-run`, que además deja la respuesta en un archivo y
+# expone `available` (true/false) para que cada workflow degrade con un `if:`.
 # ---------------------------------------------------------------------------
 set -uo pipefail
 
@@ -60,7 +64,7 @@ http_code=""
 body=""
 
 while [ "$attempt" -le "$max_attempts" ]; do
-  raw="$(curl -sS -w '\n%{http_code}' "$BASE_URL" \
+  raw="$(curl -sS -w '\n%{http_code}' --max-time 180 "$BASE_URL" \
     -H "Authorization: Bearer $LLM_API_KEY" \
     -H "Content-Type: application/json" \
     -d "$PAYLOAD" 2>/dev/null)"

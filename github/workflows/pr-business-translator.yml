@@ -3,6 +3,11 @@ name: Traductor de PR a negocio
 # Al abrir/actualizar un PR, traduce el cambio a lenguaje de negocio
 # (qué historia implementa, riesgo, qué probar) y lo postea como comentario
 # del PR + aviso en Discord. LLM OpenAI-compatible (default Gemini free tier).
+#
+# Comparte eventos con dod-checker.yml, así que cada uno marca SU comentario
+# (ver .github/scripts/pr-comment.sh): antes ambos usaban `gh pr comment
+# --edit-last` y, como los dos comentan como github-actions[bot], terminaban
+# editando el comentario del otro.
 
 on:
   pull_request:
@@ -20,6 +25,10 @@ permissions:
 jobs:
   translate:
     runs-on: ubuntu-latest
+    env:
+      DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_QA }}
+      PR: ${{ github.event.pull_request.number }}
+      PR_URL: ${{ github.event.pull_request.html_url }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -28,17 +37,28 @@ jobs:
       - name: Obtener diff y título del PR
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          PR: ${{ github.event.pull_request.number }}
         run: |
           gh pr view "$PR" --json title,body,headRefName > meta.json
-          gh pr diff "$PR" > diff.txt || echo "(sin diff)" > diff.txt
+          gh pr diff "$PR" > diff_full.txt || echo "(sin diff)" > diff_full.txt
+          # Un lockfile puede ocupar toda la ventana de contexto y dejar al
+          # agente sin ver el código real del cambio.
+          awk '
+            /^diff --git / {
+              skip = ($0 ~ /(package-lock\.json|pnpm-lock\.yaml|yarn\.lock|poetry\.lock|Cargo\.lock|go\.sum)/)
+              if (skip) print "--- (omitido del contexto: lockfile) " $0
+            }
+            !skip
+          ' diff_full.txt > diff.txt
 
       - name: Armar el prompt
         run: |
           {
             echo "Sos el Traductor de PRs a Negocio de SportMatch. Traducí este PR para alguien que NO lee código (PM/PO). Español, sin jerga."
-            echo "Secciones EXACTAS: 'Qué hace este cambio' (2-3 líneas), 'Historia que implementa' (RF-01..RF-06; si no mapea a ninguno marcá ⚠️ fuera de backlog; decí si cubre todos los AC o parte), 'Riesgo' (bajo/medio/alto + por qué; ojo con auth, datos personales RNF-03 y flujos Must), 'Qué probar antes de aprobar' (checklist en lenguaje de usuario)."
+            echo "Secciones EXACTAS: 'Qué hace este cambio' (2-3 líneas), 'Historia que implementa' (usá la tabla de RF de abajo; si no mapea a ninguno marcá ⚠️ fuera de backlog; decí si cubre todos los AC o parte), 'Riesgo' (bajo/medio/alto + por qué; ojo con auth, datos personales RNF-03 y flujos Must), 'Qué probar antes de aprobar' (checklist en lenguaje de usuario)."
             echo "Breve, cabe en un comentario."
+            echo ""
+            echo "=== REQUERIMIENTOS FUNCIONALES (AGENTS.md) ==="
+            bash .github/scripts/agents-section.sh 2
             echo ""
             echo "=== META ==="; cat meta.json
             echo ""
@@ -47,50 +67,39 @@ jobs:
 
       - name: Generar traducción (LLM OpenAI-compatible, default Gemini)
         id: ai
-        env:
-          LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
-          LLM_BASE_URL: ${{ vars.LLM_BASE_URL }}
-          LLM_MODEL: ${{ vars.LLM_MODEL }}
-        run: |
-          OUT=$(bash .github/scripts/llm.sh prompt.txt)
-          {
-            echo 'response<<EOF_LLM'
-            echo "$OUT"
-            echo 'EOF_LLM'
-          } >> "$GITHUB_OUTPUT"
+        uses: ./.github/actions/agent-run
+        with:
+          prompt-file: prompt.txt
+          output-file: response.md
+          api-key: ${{ secrets.LLM_API_KEY }}
+          base-url: ${{ vars.LLM_BASE_URL }}
+          model: ${{ vars.LLM_MODEL }}
 
       - name: Comentar el PR
+        if: steps.ai.outputs.available == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          PR: ${{ github.event.pull_request.number }}
-          RESPONSE: ${{ steps.ai.outputs.response }}
         run: |
-          if printf '%s' "$RESPONSE" | grep -q "^LLM_UNAVAILABLE"; then
-            echo "LLM no disponible, no se comenta el PR: $RESPONSE"
-            exit 0
-          fi
-          printf '### 📊 Resumen para negocio (IA)\n\n%s\n\n---\n*Generado automáticamente. La decisión es humana ("Lab4 no codifica").*' "$RESPONSE" > body.md
-          # --edit-last edita el último comentario de este mismo actor (el bot), nunca uno humano.
-          gh pr comment "$PR" --edit-last --create-if-none --body-file body.md
+          {
+            printf '### 📊 Resumen para negocio (IA)\n\n'
+            cat response.md
+            printf '\n\n---\n*Generado automáticamente. La decisión es humana ("Lab4 no codifica").*\n'
+          } > body.md
+          bash .github/scripts/pr-comment.sh "$PR" "agente:pr-business-translator" body.md
 
       - name: Avisar por Discord
+        if: always()
         env:
-          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_QA }}
-          RESPONSE: ${{ steps.ai.outputs.response }}
-          PR_URL: ${{ github.event.pull_request.html_url }}
+          AVAILABLE: ${{ steps.ai.outputs.available }}
+          REASON: ${{ steps.ai.outputs.reason }}
         run: |
-          python3 - <<'PY'
-          import json, os, urllib.request
-          resp = os.environ["RESPONSE"]
-          if resp.startswith("LLM_UNAVAILABLE"):
-              msg = f"⚠️ Traductor de PR a negocio: LLM no disponible ahora mismo, no se tradujo {os.environ['PR_URL']} en este run. ({resp})"
-          else:
-              msg = f"📊 Nuevo PR traducido a negocio: {os.environ['PR_URL']}\n\n" + resp
-          data = json.dumps({"content": msg[:1900]}).encode()
-          req = urllib.request.Request(os.environ["DISCORD_WEBHOOK_URL"], data=data,
-                                       headers={"Content-Type": "application/json", "User-Agent": "Mozilla/5.0 (compatible; SportMatchBot/1.0)"})
-          urllib.request.urlopen(req)
-          PY
+          if [ "$AVAILABLE" = "true" ]; then
+            { printf '📊 Nuevo PR traducido a negocio: %s\n\n' "$PR_URL"; cat response.md; } > msg.md
+          else
+            { printf '⚠️ Traductor de PR a negocio: LLM no disponible ahora mismo, no se tradujo %s en este run.\n' "$PR_URL"
+              printf '%s\n' "$REASON"; } > msg.md
+          fi
+          bash .github/scripts/notify.sh msg.md
 
 # Secrets: LLM_API_KEY (Gemini u otro OpenAI-compatible), DISCORD_WEBHOOK_QA
 # Variables opcionales: LLM_BASE_URL, LLM_MODEL (ver .github/scripts/llm.sh)

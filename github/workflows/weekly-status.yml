@@ -16,31 +16,20 @@ permissions:
 jobs:
   weekly-status:
     runs-on: ubuntu-latest
+    env:
+      DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_PROGRESS }}
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
       - name: Traer datos de Linear (ciclo activo)
-        run: |
-          curl -s https://api.linear.app/graphql \
-            -H "Authorization: ${LINEAR_API_KEY}" \
-            -H "Content-Type: application/json" \
-            -d '{"query":"{ issues(filter:{cycle:{isActive:{eq:true}}}) { nodes { identifier title state{name} estimate completedAt } } }"}' \
-            > linear.json || echo '{"error":"linear no disponible"}' > linear.json
+        id: linear
         env:
           LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
-
-      - name: Detectar si Linear no devolvió datos (distinto de "todo verde")
-        id: linear_status
         run: |
-          if jq -e '.errors, .error' linear.json >/dev/null 2>&1; then
-            echo "estado=error_api" >> "$GITHUB_OUTPUT"
-          elif [ "$(jq -r '.data.issues.nodes | length' linear.json 2>/dev/null)" = "0" ]; then
-            echo "estado=sin_ciclo_activo" >> "$GITHUB_OUTPUT"
-          else
-            echo "estado=ok" >> "$GITHUB_OUTPUT"
-          fi
+          bash .github/scripts/linear.sh active-issues > linear.json
+          echo "estado=$(jq -r '.status // "error"' linear.json)" >> "$GITHUB_OUTPUT"
 
       - name: Traer PRs mergeados de la semana
         env:
@@ -51,50 +40,45 @@ jobs:
 
       - name: Armar el prompt
         env:
-          LINEAR_ESTADO: ${{ steps.linear_status.outputs.estado }}
+          LINEAR_ESTADO: ${{ steps.linear.outputs.estado }}
         run: |
           {
             echo "Sos el agente Status Reporter de SportMatch. Generá el informe de avance semanal para la cátedra (Lab 4) en Markdown, en español, con estas secciones:"
             echo "1) Estado general (RAG 🟢/🟡/🔴 + justificación), 2) Avance de la semana (historias RF-xx completadas con link al PR), 3) Entregables/demo mostrable hoy, 4) Riesgos y blockers activos, 5) Decisiones tomadas, 6) Próxima semana, 7) Métricas (velocity, PRs mergeados, carry-over)."
             echo "Regla: toda historia 'completada' debe tener su PR mergeado; si no, no está completada. Tono profesional y honesto (la cátedra valora la gestión del desvío, no el maquillaje). Respetá el alcance del MVP."
             if [ "$LINEAR_ESTADO" != "ok" ]; then
-              echo "IMPORTANTE: Linear no devolvió tickets del ciclo activo (estado='$LINEAR_ESTADO'). NO marques 'Estado general' como 🟢 por default ni completes 'Avance de la semana' con historias inventadas — decí explícitamente en el reporte que Linear no tenía ciclo activo (o falló) y basá el reporte solo en los PRs mergeados de GitHub."
+              echo "IMPORTANTE: Linear no devolvió tickets del ciclo activo (status='$LINEAR_ESTADO': 'empty' = no hay ciclo activo, 'error' = falló la API y el campo 'message' dice por qué). NO marques 'Estado general' como 🟢 por default ni completes 'Avance de la semana' con historias inventadas — decí explícitamente en el reporte que Linear no tenía ciclo activo (o falló, citando el message) y basá el reporte solo en los PRs mergeados de GitHub."
             fi
             echo ""
-            echo "=== LINEAR (ciclo activo; estado=$LINEAR_ESTADO) ==="; cat linear.json
+            echo "=== REQUERIMIENTOS FUNCIONALES (AGENTS.md) ==="
+            bash .github/scripts/agents-section.sh 2
+            echo ""
+            echo "=== LINEAR (ciclo activo; status=$LINEAR_ESTADO) ==="; cat linear.json
             echo ""
             echo "=== PRs MERGEADOS ==="; cat prs.json
           } > prompt.txt
 
       - name: Generar reporte (LLM OpenAI-compatible, default Gemini)
         id: ai
-        env:
-          LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
-          LLM_BASE_URL: ${{ vars.LLM_BASE_URL }}
-          LLM_MODEL: ${{ vars.LLM_MODEL }}
-        run: |
-          OUT=$(bash .github/scripts/llm.sh prompt.txt)
-          {
-            echo 'response<<EOF_LLM'
-            echo "$OUT"
-            echo 'EOF_LLM'
-          } >> "$GITHUB_OUTPUT"
+        uses: ./.github/actions/agent-run
+        with:
+          prompt-file: prompt.txt
+          output-file: response.md
+          api-key: ${{ secrets.LLM_API_KEY }}
+          base-url: ${{ vars.LLM_BASE_URL }}
+          model: ${{ vars.LLM_MODEL }}
 
       - name: Guardar y commitear el reporte
         id: commit
-        env:
-          RESPONSE: ${{ steps.ai.outputs.response }}
+        if: steps.ai.outputs.available == 'true'
         run: |
-          if printf '%s' "$RESPONSE" | grep -q "^LLM_UNAVAILABLE"; then
-            echo "LLM no disponible, no se genera el reporte: $RESPONSE"
-            echo "outcome=llm-unavailable" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
           mkdir -p docs/status-reports
-          FECHA=$(date +%Y-%m-%d)
-          cat > "docs/status-reports/$FECHA.md" <<'EOF'
-          ${{ steps.ai.outputs.response }}
-          EOF
+          FECHA=$(date -u +%Y-%m-%d)
+          # Se copia el archivo tal cual: antes el texto se interpolaba dentro
+          # de un heredoc, así que una línea "EOF" en el reporte cortaba el
+          # heredoc y el resto se ejecutaba como comandos del runner.
+          cp response.md "docs/status-reports/$FECHA.md"
+
           git config user.name "sportmatch-bot"
           git config user.email "bot@sportmatch.local"
           git add docs/status-reports/
@@ -118,48 +102,25 @@ jobs:
           fi
 
       - name: Postear resumen a Discord
-        if: steps.commit.outputs.outcome == 'pushed'
+        if: always()
         env:
-          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_PROGRESS }}
+          AVAILABLE: ${{ steps.ai.outputs.available }}
+          REASON: ${{ steps.ai.outputs.reason }}
+          OUTCOME: ${{ steps.commit.outputs.outcome }}
         run: |
-          python3 - <<'PY'
-          import json, os, urllib.request
-          full = """${{ steps.ai.outputs.response }}"""
-          resumen = "📋 Status Report semanal — SportMatch\n" + full[:1500] + "\n… (reporte completo en docs/status-reports/)"
-          data = json.dumps({"content": resumen[:1900]}).encode()
-          req = urllib.request.Request(os.environ["DISCORD_WEBHOOK_URL"], data=data,
-                                       headers={"Content-Type": "application/json", "User-Agent": "Mozilla/5.0 (compatible; SportMatchBot/1.0)"})
-          urllib.request.urlopen(req)
-          PY
-
-      - name: Avisar por Discord si no se pudo publicar (LLM caído o push rechazado)
-        if: always() && steps.commit.outputs.outcome == 'push-failed'
-        env:
-          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_PROGRESS }}
-        run: |
-          python3 - <<'PY'
-          import json, os, urllib.request
-          msg = "⚠️ Status Report semanal: el reporte se generó pero el push a git falló (revisar branch protection / permisos del bot). No se publicó nada."
-          data = json.dumps({"content": msg[:1900]}).encode()
-          req = urllib.request.Request(os.environ["DISCORD_WEBHOOK_URL"], data=data,
-                                       headers={"Content-Type": "application/json", "User-Agent": "Mozilla/5.0 (compatible; SportMatchBot/1.0)"})
-          urllib.request.urlopen(req)
-          PY
-
-      - name: Avisar por Discord si el LLM no estaba disponible
-        if: steps.commit.outputs.outcome == 'llm-unavailable'
-        env:
-          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_PROGRESS }}
-          RESPONSE: ${{ steps.ai.outputs.response }}
-        run: |
-          python3 - <<'PY'
-          import json, os, urllib.request
-          msg = f"⚠️ Status Report semanal: LLM no disponible ahora mismo, no se generó el reporte de esta semana. ({os.environ.get('RESPONSE','')})"
-          data = json.dumps({"content": msg[:1900]}).encode()
-          req = urllib.request.Request(os.environ["DISCORD_WEBHOOK_URL"], data=data,
-                                       headers={"Content-Type": "application/json", "User-Agent": "Mozilla/5.0 (compatible; SportMatchBot/1.0)"})
-          urllib.request.urlopen(req)
-          PY
+          if [ "$AVAILABLE" != "true" ]; then
+            { printf '⚠️ Status Report semanal: LLM no disponible ahora mismo, no se generó el reporte de esta semana.\n'
+              printf '%s\n' "$REASON"; } > msg.md
+          elif [ "$OUTCOME" = "push-failed" ]; then
+            printf '⚠️ Status Report semanal: el reporte se generó pero el push a git falló (revisar branch protection / permisos del bot). No se publicó nada.\n' > msg.md
+          elif [ "$OUTCOME" = "no-changes" ]; then
+            printf 'ℹ️ Status Report semanal: el reporte generado es idéntico al anterior, no se commiteó nada.\n' > msg.md
+          else
+            { printf '📋 Status Report semanal — SportMatch\n\n'
+              head -c 1500 response.md
+              printf '\n… (reporte completo en docs/status-reports/)\n'; } > msg.md
+          fi
+          bash .github/scripts/notify.sh msg.md
 
 # Secrets necesarios: LLM_API_KEY (Gemini u otro OpenAI-compatible),
 #                     LINEAR_API_KEY, DISCORD_WEBHOOK_PROGRESS
