@@ -1,0 +1,133 @@
+name: Onboarding (refresh mensual)
+
+# El agente de Onboarding (agente 4) era solo chat mode: dependía de que alguien
+# se acuerde de correrlo, justo en un equipo donde los roles rotan cada mes
+# (AGENTS.md §9). Este workflow lo automatiza: una vez al mes regenera
+# docs/ONBOARDING.md a partir del estado real del repo y abre un PR para que
+# lo revise un humano (no auto-commitea: a diferencia del status report, este
+# doc afecta el primer día de alguien nuevo, un error acá sale caro).
+# Corre el día 1 de cada mes 10:00 ART (13:00 UTC). También disparable a mano.
+
+on:
+  schedule:
+    - cron: "0 13 1 * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  onboarding:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Evitar duplicar si ya hay un PR de refresh abierto
+        id: existing
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          OPEN=$(gh pr list --state open --head bot/onboarding-refresh --json number -q '.[0].number' 2>/dev/null || echo "")
+          echo "open_pr=$OPEN" >> "$GITHUB_OUTPUT"
+
+      - name: Recolectar realidad del repo
+        if: steps.existing.outputs.open_pr == ''
+        run: |
+          {
+            echo "### AGENTS.md"; cat AGENTS.md 2>/dev/null || echo "(no encontrado)"
+            echo ""; echo "### Árbol (3 niveles)"; find . -maxdepth 3 -not -path '*/.git/*' -not -path '*/node_modules/*' | sort | head -200
+            echo ""; echo "### Manifiestos detectados"
+            for f in package.json requirements.txt pom.xml go.mod Dockerfile docker-compose.yml .env.example Makefile; do
+              [ -f "$f" ] && { echo "--- $f ---"; head -60 "$f"; }
+            done
+            echo ""; echo "### Workflows de CI existentes"; ls .github/workflows/ 2>/dev/null
+            echo ""; echo "### ONBOARDING.md actual (si existe)"; cat docs/ONBOARDING.md 2>/dev/null || echo "(no existe todavía)"
+          } > repo.txt
+
+      - name: Armar el prompt
+        if: steps.existing.outputs.open_pr == ''
+        run: |
+          {
+            echo "Sos el Agente de Onboarding de SportMatch. Generá/actualizá docs/ONBOARDING.md para que un dev nuevo (o alguien que rota de rol — los roles rotan cada mes en este equipo) levante el proyecto y haga su primer commit sin preguntarle a nadie."
+            echo "Estructura obligatoria: 1) Qué es SportMatch (3 líneas + link a AGENTS.md), 2) Requisitos previos, 3) Setup paso a paso (comandos reales y copiables), 4) Tests y lint (comandos reales del repo), 5) Flujo de trabajo (branches, commits, PR, DoD — referí a AGENTS.md §6), 6) Mapa del código (1 línea por carpeta principal), 7) Primer día: primera contribución, 8) Problemas comunes."
+            echo "Comandos reales, no placeholders: lo que no puedas determinar del repo, marcalo <!-- TODO: verificar --> y no lo inventes. Español. No documentes nada de la sección 'Fuera de alcance' de AGENTS.md."
+            echo "Respondé solo con el contenido final en Markdown de docs/ONBOARDING.md, sin comentario adicional ni fences de código alrededor."
+            echo ""
+            echo "=== REALIDAD DEL REPO ==="; cat repo.txt
+          } > prompt.txt
+
+      - name: Generar el onboarding (LLM OpenAI-compatible, default Gemini)
+        if: steps.existing.outputs.open_pr == ''
+        id: ai
+        env:
+          LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
+          LLM_BASE_URL: ${{ vars.LLM_BASE_URL }}
+          LLM_MODEL: ${{ vars.LLM_MODEL }}
+        run: |
+          OUT=$(bash .github/scripts/llm.sh prompt.txt)
+          {
+            echo 'response<<EOF_LLM'
+            echo "$OUT"
+            echo 'EOF_LLM'
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Abrir PR con el onboarding actualizado
+        if: steps.existing.outputs.open_pr == ''
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_PLANNING }}
+          RESPONSE: ${{ steps.ai.outputs.response }}
+        run: |
+          notify() {
+            python3 - "$1" <<'PY'
+          import json, os, sys, urllib.request
+          data = json.dumps({"content": sys.argv[1][:1900]}).encode()
+          hook = os.environ.get("DISCORD_WEBHOOK_URL","")
+          if hook:
+              req = urllib.request.Request(hook, data=data, headers={"Content-Type":"application/json","User-Agent":"Mozilla/5.0 (compatible; SportMatchBot/1.0)"})
+              urllib.request.urlopen(req)
+          PY
+          }
+
+          if printf '%s' "$RESPONSE" | grep -q "^LLM_UNAVAILABLE"; then
+            echo "LLM no disponible, no se genera el onboarding: $RESPONSE"
+            notify "⚠️ Onboarding: LLM no disponible ahora mismo, no se refrescó docs/ONBOARDING.md este mes. ($RESPONSE)"
+            exit 0
+          fi
+
+          mkdir -p docs
+          printf '%s' "$RESPONSE" | sed -e '/^```/d' > docs/ONBOARDING.md
+
+          git config user.name "sportmatch-bot"
+          git config user.email "bot@sportmatch.local"
+
+          if git diff --quiet -- docs/ONBOARDING.md; then
+            echo "Sin cambios respecto al onboarding actual, no se abre PR."
+            exit 0
+          fi
+
+          BRANCH="bot/onboarding-refresh-$(date +%Y%m%d)"
+          git checkout -b "$BRANCH"
+          git add docs/ONBOARDING.md
+          git commit -m "docs: refresh mensual de onboarding (automático)"
+          git push -u origin "$BRANCH"
+
+          URL=$(gh pr create --base dev --head "$BRANCH" \
+            --title "📘 Refresh mensual de onboarding" \
+            --body "Generado automáticamente por el agente de Onboarding. Revisar antes de mergear (regla \"Lab4 no codifica\": la decisión es humana). Compara \`docs/ONBOARDING.md\` contra el estado real del repo." \
+            --label documentation 2>/dev/null || echo "")
+          echo "PR creado: $URL"
+          notify "📘 Nuevo PR de refresh de onboarding para revisar: $URL"
+
+      - name: Avisar que ya había un PR abierto (se omite este mes)
+        if: steps.existing.outputs.open_pr != ''
+        run: |
+          echo "Ya hay un PR de onboarding sin mergear (#${{ steps.existing.outputs.open_pr }}). Se omite generar otro hasta que se resuelva."
+
+# Secrets: LLM_API_KEY (Gemini u otro OpenAI-compatible), DISCORD_WEBHOOK_PLANNING
+# Variables opcionales: LLM_BASE_URL, LLM_MODEL (ver .github/scripts/llm.sh)
+# La label "documentation" debe existir en el repo (la crea context-curator.yml si corrió antes;
+# si no, quitá --label o creála con `gh label create`).

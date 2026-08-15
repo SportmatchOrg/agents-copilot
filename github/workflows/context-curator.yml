@@ -4,11 +4,21 @@ name: Curador de contexto (drift AGENTS.md)
 # repo real (estructura, stack, convenciones). Si detecta drift, abre un
 # issue con la propuesta + avisa por Discord. NO auto-commitea AGENTS.md
 # (regla "Lab4 no codifica": la decisión es humana). LLM OpenAI-compatible (default Gemini).
+#
+# El LLM responde en JSON estricto (no texto libre con "primera línea mágica")
+# para que la decisión drift/sin-cambios no dependa de que el modelo respete
+# un formato de texto exacto. Antes de abrir un issue nuevo, revisa si ya hay
+# uno abierto con la label "agente:context-curator" y lo actualiza en vez de
+# duplicarlo.
 
 on:
   push:
     branches: [dev, main]
   workflow_dispatch:
+
+concurrency:
+  group: context-curator-${{ github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
@@ -36,8 +46,10 @@ jobs:
         run: |
           {
             echo "Sos el Curador de contexto de SportMatch. Compará el AGENTS.md actual contra la realidad del repo (abajo) y detectá divergencias en: estructura de carpetas, stack tecnológico, convenciones de commits/branches, y TODOs que ya podrían completarse."
-            echo "Si NO hay divergencias relevantes, respondé EXACTAMENTE con la primera línea: SIN CAMBIOS"
-            echo "Si HAY divergencias, respondé con: primera línea 'DRIFT DETECTADO', y debajo un cuerpo de issue en Markdown (español) listando cada divergencia con evidencia (archivo/sección) y el cambio propuesto para AGENTS.md. NO reescribas el archivo: proponé. Ignorá cosas 'Fuera de alcance' (AGENTS.md §1)."
+            echo "Respondé EXCLUSIVAMENTE con un objeto JSON válido (nada de texto antes/después, nada de \`\`\`), con esta forma exacta:"
+            echo '{"drift": boolean, "issue_body": string}'
+            echo "Si NO hay divergencias relevantes: drift=false, issue_body=\"\"."
+            echo "Si HAY divergencias: drift=true, issue_body en Markdown (español) listando cada divergencia con evidencia (archivo/sección) y el cambio propuesto para AGENTS.md. NO reescribas el archivo: proponé. Ignorá cosas 'Fuera de alcance' (AGENTS.md §1)."
             echo ""
             echo "=== AGENTS.md ACTUAL ==="; cat agents_actual.md
             echo ""
@@ -58,42 +70,71 @@ jobs:
             echo 'EOF_LLM'
           } >> "$GITHUB_OUTPUT"
 
-      - name: Abrir issue + Discord si hay drift
+      - name: Asegurar que existan las labels usadas (idempotente)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh label create documentation --color 0075ca --description "Documentación" 2>/dev/null || true
+          gh label create "agente:context-curator" --color 5319e7 --description "Generado por el agente Curador de contexto (para dedup)" 2>/dev/null || true
+
+      - name: Abrir o actualizar issue + Discord si hay drift
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_PLANNING }}
           RESPONSE: ${{ steps.ai.outputs.response }}
         run: |
-          if printf '%s' "$RESPONSE" | grep -q "^LLM_UNAVAILABLE"; then
-            echo "LLM no disponible, aviso sin evaluar drift: $RESPONSE"
-            python3 - <<PY
-          import json, os, urllib.request
-          msg = "⚠️ Curador de contexto: LLM no disponible ahora mismo, no se evaluó drift en este run. (${RESPONSE})"
+          notify() {
+            python3 - "$1" <<'PY'
+          import json, os, sys, urllib.request
+          msg = sys.argv[1]
           data = json.dumps({"content": msg[:1900]}).encode()
           hook = os.environ.get("DISCORD_WEBHOOK_URL","")
           if hook:
               req = urllib.request.Request(hook, data=data, headers={"Content-Type":"application/json","User-Agent":"Mozilla/5.0 (compatible; SportMatchBot/1.0)"})
               urllib.request.urlopen(req)
           PY
+          }
+
+          if printf '%s' "$RESPONSE" | grep -q "^LLM_UNAVAILABLE"; then
+            echo "LLM no disponible, aviso sin evaluar drift: $RESPONSE"
+            notify "⚠️ Curador de contexto: LLM no disponible ahora mismo, no se evaluó drift en este run. ($RESPONSE)"
             exit 0
           fi
-          if printf '%s' "$RESPONSE" | head -1 | grep -q "SIN CAMBIOS"; then
+
+          # El LLM puede devolver el JSON envuelto en ```json ... ``` pese a la instrucción; se lo toleramos.
+          printf '%s' "$RESPONSE" | sed -e '/^```/d' > verdict.json
+          if ! jq -e . verdict.json >/dev/null 2>&1; then
+            echo "El LLM no devolvió JSON válido, no se puede decidir drift/sin-cambios de forma confiable. Respuesta cruda:"
+            cat verdict.json
+            notify "⚠️ Curador de contexto: el LLM devolvió un formato inesperado, no se pudo evaluar drift en este run."
+            exit 0
+          fi
+
+          DRIFT=$(jq -r '.drift' verdict.json)
+          if [ "$DRIFT" != "true" ]; then
             echo "AGENTS.md alineado, sin acción."
             exit 0
           fi
-          printf '%s' "$RESPONSE" > issue.md
-          URL=$(gh issue create --title "📄 AGENTS.md desactualizado (drift detectado)" \
-                --body-file issue.md --label documentation 2>/dev/null || echo "")
-          python3 - <<PY
-          import json, os, urllib.request
-          msg = "📄 El Curador de contexto detectó que AGENTS.md quedó desactualizado. Issue: ${URL}"
-          data = json.dumps({"content": msg[:1900]}).encode()
-          hook = os.environ.get("DISCORD_WEBHOOK_URL","")
-          if hook:
-              req = urllib.request.Request(hook, data=data, headers={"Content-Type":"application/json","User-Agent":"Mozilla/5.0 (compatible; SportMatchBot/1.0)"})
-              urllib.request.urlopen(req)
-          PY
+
+          jq -r '.issue_body' verdict.json > issue.md
+
+          EXISTING=$(gh issue list --state open --label "agente:context-curator" --json number -q '.[0].number' 2>/dev/null || echo "")
+          if [ -n "$EXISTING" ]; then
+            # Reemplaza el body (no acumula comentarios en cada push): la evidencia de drift
+            # cambia con cada push, mantener solo la más reciente evita que el issue crezca sin límite.
+            gh issue edit "$EXISTING" --body-file issue.md
+            URL=$(gh issue view "$EXISTING" --json url -q .url)
+            echo "Issue #$EXISTING actualizado (ya existía, se evita duplicar): $URL"
+            notify "📄 El Curador de contexto actualizó el issue de drift existente. Issue: $URL"
+          else
+            URL=$(gh issue create --title "📄 AGENTS.md desactualizado (drift detectado)" \
+                  --body-file issue.md --label documentation --label "agente:context-curator" 2>/dev/null || echo "")
+            echo "Issue nuevo creado: $URL"
+            notify "📄 El Curador de contexto detectó que AGENTS.md quedó desactualizado. Issue: $URL"
+          fi
 
 # Secrets: LLM_API_KEY (Gemini u otro OpenAI-compatible), DISCORD_WEBHOOK_PLANNING
 # Variables opcionales: LLM_BASE_URL, LLM_MODEL (ver .github/scripts/llm.sh)
-# La label "documentation" debe existir en el repo (o quitá --label).
+# Las labels "documentation" y "agente:context-curator" deben existir en el
+# repo (creálas una vez con `gh label create`, o quitá los --label si no las
+# querés usar — pero sin "agente:context-curator" se pierde el dedup).

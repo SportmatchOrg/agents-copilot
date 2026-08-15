@@ -18,6 +18,10 @@ on:
     types: [opened, synchronize, reopened, ready_for_review]
     branches: [dev, main]
 
+concurrency:
+  group: dod-checker-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
   pull-requests: write
@@ -94,7 +98,9 @@ jobs:
             exit 0
           fi
           printf '### ✅ Definition of Done — chequeo automático\n\n%s\n\n---\n*Chequeo asistido por IA. La decisión de cerrar es humana.*' "$RESPONSE" > body.md
-          gh pr comment "$PR" --body-file body.md
+          # --edit-last edita el último comentario de este mismo actor (el bot), nunca uno humano.
+          # Evita spamear un comentario nuevo en cada push al PR.
+          gh pr comment "$PR" --edit-last --create-if-none --body-file body.md
 
       - name: Reportar en Linear (comentar el ticket real, o crear uno de seguimiento si no hay)
         env:

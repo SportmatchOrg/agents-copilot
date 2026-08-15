@@ -84,11 +84,14 @@ git push
 ## Paso 3 — Cargar los secrets en el repo
 
 ```bash
-gh secret set LLM_API_KEY         --body "PEGAR_GEMINI_API_KEY"
-gh secret set DISCORD_WEBHOOK_URL  --body "PEGAR_URL_DEL_WEBHOOK"
-gh secret set LINEAR_API_KEY       --body "PEGAR_LINEAR_API_KEY"
+gh secret set LLM_API_KEY               --body "PEGAR_GEMINI_API_KEY"
+# Son 3 webhooks distintos (uno por canal); para el sandbox podés usar el mismo webhook de test en los tres.
+gh secret set DISCORD_WEBHOOK_QA        --body "PEGAR_URL_DEL_WEBHOOK"
+gh secret set DISCORD_WEBHOOK_PLANNING  --body "PEGAR_URL_DEL_WEBHOOK"
+gh secret set DISCORD_WEBHOOK_PROGRESS  --body "PEGAR_URL_DEL_WEBHOOK"
+gh secret set LINEAR_API_KEY            --body "PEGAR_LINEAR_API_KEY"
 # GITHUB_TOKEN ya viene incluido, no se carga.
-gh secret list   # verificar que aparezcan los tres
+gh secret list   # verificar que aparezcan los cinco
 
 # (Opcional) para usar otro proveedor en vez de Gemini, seteá variables:
 # gh variable set LLM_BASE_URL --body "https://api.groq.com/openai/v1/chat/completions"
@@ -199,7 +202,7 @@ Marcá cada uno cuando lo veas funcionar. La columna "Cómo dispararlo" incluye 
 | "ERROR LLM: model not found" | Nombre de modelo desactualizado | Cambiá la variable `LLM_MODEL` (ej. `gemini-2.5-flash` → el modelo Gemini vigente) |
 | Rate limit del proveedor | Muchas corridas seguidas en el free tier | Esperá unos minutos; el volumen real (2 devs) no lo alcanza. O cambiá de proveedor con `LLM_BASE_URL`/`LLM_MODEL` |
 | "Resource not accessible" al comentar/crear issue | Faltan permisos en el workflow | Confirmá el bloque `permissions:` (pull-requests/issues: write) |
-| No llega nada a Discord | Webhook mal cargado | Reejecutá `gh secret set DISCORD_WEBHOOK_URL`; probá el webhook con un `curl` manual |
+| No llega nada a Discord | Webhook mal cargado | Son 3 secrets distintos (`DISCORD_WEBHOOK_QA`, `_PLANNING`, `_PROGRESS`) enrutados por canal — confirmá cuál usa el workflow que estás probando y reejecutá `gh secret set` sobre ese; probá el webhook con un `curl` manual |
 | Sprint Health dice "linear no disponible" | API key inválida o query sin datos | Verificá `LINEAR_API_KEY` y que el team de test tenga un ciclo activo con issues |
 | Los chat modes no aparecen en VS Code | Carpeta mal ubicada | Deben estar en `.github/chatmodes/` (con punto) y el repo abierto en la raíz |
 | Code review de Copilot no comenta | Tier de Copilot / no habilitado | Probá review manual; documentá si Student no lo soporta |
