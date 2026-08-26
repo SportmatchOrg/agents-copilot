@@ -81,9 +81,10 @@ jobs:
     runs-on: ubuntu-latest
     # PRs de forks: GitHub no expone secrets ahí, y no usamos pull_request_target
     # para saltear esa protección (plan §28). Las draft PRs esperan a ready_for_review.
-    if: >-
-      github.event.pull_request.draft == false &&
-      github.event.pull_request.head.repo.full_name == github.repository
+    # En una sola línea a propósito: un `if:` plegado con `>-` en varias líneas hace
+    # que GitHub rechace el workflow entero ("workflow file issue", sin crear ningún
+    # job). Verificado bisecando contra el sandbox.
+    if: github.event.pull_request.draft == false && github.event.pull_request.head.repo.full_name == github.repository
 
     env:
       TARGET: ${{ github.workspace }}/target
