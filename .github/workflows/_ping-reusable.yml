@@ -66,10 +66,6 @@ on:
         description: Opcional. Sin ella, QA-01 (scope) y QA-05 se omiten.
         required: false
 
-permissions:
-  contents: read
-  pull-requests: read
-
 jobs:
   qa-review:
     runs-on: ubuntu-latest
