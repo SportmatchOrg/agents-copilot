@@ -78,9 +78,6 @@ jobs:
     # se cancela el viejo y solo se analiza el HEAD más reciente.
     # Va a nivel de JOB y no de workflow: en un reusable, un `concurrency:` de
     # workflow hace que GitHub rechace el archivo entero.
-    concurrency:
-      group: qa-review-${{ github.repository }}-${{ github.event.pull_request.number }}
-      cancel-in-progress: true
 
     # PRs de forks: GitHub no expone secrets ahí, y no usamos pull_request_target
     # para saltear esa protección (plan §28). Las draft PRs esperan a ready_for_review.
