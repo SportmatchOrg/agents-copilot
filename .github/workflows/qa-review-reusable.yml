@@ -24,18 +24,21 @@ on:
         default: main
       llm_base_url:
         description: >
-          Endpoint chat/completions compatible con OpenAI. Default: Gemini, el mismo
-          proveedor que ya usan los otros agentes del paquete, para reutilizar
-          LLM_API_KEY. Para OpenRouter:
-          https://openrouter.ai/api/v1/chat/completions
+          Endpoint chat/completions compatible con OpenAI. Si se deja vacío usa la
+          variable LLM_BASE_URL del repo que llama — la misma que ya configura a
+          los otros agentes del paquete — y si tampoco está, cae al default del
+          cliente (Gemini). Precedencia: este input > vars.LLM_BASE_URL > default.
+          Así, cambiar de proveedor para todos los agentes es cambiar una sola
+          variable de repo.
         type: string
-        default: https://generativelanguage.googleapis.com/v1beta/openai/chat/completions
+        default: ""
       llm_model:
         description: >
-          Modelo del agente. Nunca se hardcodea en el código: cambiarlo es cambiar
-          este input. Probado también con minimax/minimax-m3:free (OpenRouter).
+          Modelo del agente. Nunca se hardcodea en el código. Misma precedencia que
+          llm_base_url: este input > vars.LLM_MODEL del repo que llama > default del
+          cliente. Probado con gemini-3.6-flash y con minimax/minimax-m3:free.
         type: string
-        default: gemini-3.6-flash
+        default: ""
       pr_size_limit:
         description: Límite de líneas revisables por PR (QA-01).
         type: number
@@ -178,8 +181,8 @@ jobs:
         if: steps.preflight.outputs.proceed == 'true' && steps.checks.outputs.has_changes == 'true'
         env:
           LLM_API_KEY: ${{ secrets.QA_LLM_API_KEY || secrets.LLM_API_KEY }}
-          LLM_BASE_URL: ${{ inputs.llm_base_url }}
-          LLM_MODEL: ${{ inputs.llm_model }}
+          LLM_BASE_URL: ${{ inputs.llm_base_url || vars.LLM_BASE_URL }}
+          LLM_MODEL: ${{ inputs.llm_model || vars.LLM_MODEL }}
         run: |
           python3 "$SCRIPTS/run-scout.py" \
             --ctx "$QA_CTX" --agents-repo "$AGENTS" --target-repo "$TARGET"
@@ -195,8 +198,8 @@ jobs:
         if: steps.preflight.outputs.proceed == 'true' && steps.checks.outputs.has_changes == 'true' && steps.scout.outputs.llm_unavailable != 'true'
         env:
           LLM_API_KEY: ${{ secrets.QA_LLM_API_KEY || secrets.LLM_API_KEY }}
-          LLM_BASE_URL: ${{ inputs.llm_base_url }}
-          LLM_MODEL: ${{ inputs.llm_model }}
+          LLM_BASE_URL: ${{ inputs.llm_base_url || vars.LLM_BASE_URL }}
+          LLM_MODEL: ${{ inputs.llm_model || vars.LLM_MODEL }}
         run: |
           python3 "$SCRIPTS/run-reviewer.py" \
             --ctx "$QA_CTX" --agents-repo "$AGENTS" --target-repo "$TARGET"

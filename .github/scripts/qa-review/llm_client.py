@@ -23,8 +23,10 @@ import time
 import urllib.error
 import urllib.request
 
-DEFAULT_BASE_URL = "https://openrouter.ai/api/v1/chat/completions"
-DEFAULT_MODEL = "minimax/minimax-m3:free"
+# Mismo default que github/scripts/llm.sh, para que este agente y los otros siete
+# del paquete apunten al mismo lugar salvo que se los configure explícitamente.
+DEFAULT_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
+DEFAULT_MODEL = "gemini-3.6-flash"
 
 RETRYABLE_STATUS = {408, 409, 429, 500, 502, 503, 504}
 _FENCE_RE = re.compile(r"```(?:json)?\s*(.*?)```", re.S)
@@ -152,6 +154,9 @@ def call_json(prompt: str, *, temperature: float = 0.2, timeout: int = 300,
               max_http_attempts: int = 5, label: str = "llm") -> dict:
     """Llama al modelo y devuelve un dict. Lanza LLMError si no se puede."""
     key, base_url, model = _config()
+    # Queda en el log del job: es lo primero que se quiere saber cuando la calidad
+    # de una review cambia sin que nadie haya tocado el código.
+    print(f"[{label}] modelo: {model}  ({base_url})", flush=True)
     messages = [{"role": "user", "content": prompt}]
     use_json_mode = True
     last_error = "desconocido"
