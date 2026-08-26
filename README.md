@@ -16,6 +16,7 @@ Copilot no usa "subagentes" como Claude; usa **chat modes**, **custom instructio
 | 4 | Onboarding de repo | Chat mode **+ workflow** | Manual en Chat, **y** automático el 1° de cada mes (abre PR con `docs/ONBOARDING.md` actualizado) |
 | 5.1 | DoR checker | Chat mode **+ workflow** | Manual en Chat (un ticket puntual), **y** automático semanal (digest del backlog sin ciclo asignado) |
 | 7 | DoD checker | Chat mode **+ workflow** | Manual en Chat, **y** automático en el PR (deja el veredicto DoD, y lo postea en el ticket real de Linear si el PR lo referencia) |
+| 2.1 | **QA PR Review Agent** | **Reusable workflow + agent skill + criterios QA** | **Automático en cada PR a dev/main: prepara una review PENDING a nombre del QA** |
 | 9 | Sprint Health | Workflow (cron + LLM) | Automático, diario → Discord |
 | 10 | Status Reporter | Workflow (cron + LLM) | Automático, semanal → Discord |
 
@@ -37,6 +38,7 @@ Qué evento dispara cada workflow:
 | `context-curator.yml` | `push` a dev/main | Issue si detecta drift de AGENTS.md (actualiza el existente si ya había uno abierto, no duplica) + Discord |
 | `repo-onboarding.yml` | Cron mensual (día 1) | PR con `docs/ONBOARDING.md` actualizado, para revisión humana + Discord |
 | `dor-readiness.yml` | Cron semanal (lunes) | Digest de tickets del backlog sin AC/estimación/RF → Discord |
+| `qa-review.yml` | PR abierta / actualizada / lista para revisión | **Pending review** (borrador visible solo para el QA) con resumen, positivos y hasta 5 findings |
 | `pr-review` (nativo) | Cada PR | Comentarios inline de Copilot |
 | `sprint-health.yml` | Cron diario | Discord |
 | `weekly-status.yml` | Cron semanal | Commit del reporte + Discord |
@@ -49,10 +51,21 @@ agentes-copilot/
 ├── github/                                  → renombrar a .github/ al instalar
 │   ├── copilot-instructions.md              → .github/copilot-instructions.md
 │   ├── chatmodes/*.chatmode.md              → .github/chatmodes/
-│   ├── skills/pr-review/SKILL.md            → .github/skills/pr-review/SKILL.md
+│   ├── skills/pr-review/
+│   │   ├── SKILL.md                         → .github/skills/pr-review/SKILL.md
+│   │   └── references/qa-criteria.md        → criterios QA-01…QA-10
 │   ├── scripts/{llm.sh,linear.sh}           → .github/scripts/
 │   └── workflows/*.yml                      → .github/workflows/
+│
+└── .github/                                 → NO se copia: es la config real de ESTE repo
+    ├── workflows/qa-review-reusable.yml      lógica central del QA PR Review Agent
+    └── scripts/qa-review/*                   sus scripts (contexto, checks, agente, validador)
 ```
+
+> **`github/` vs `.github/`.** `github/` es el paquete que se instala en el repo de desarrollo.
+> `.github/` es la configuración real de `agents-copilot`: ahí vive la lógica del QA PR Review
+> Agent, que **no** se copia a ningún lado. El repo de desarrollo solo recibe un wrapper de 10
+> líneas (`qa-review.yml`) que la invoca como *reusable workflow*.
 
 > La carpeta va sin punto (`github/`) por una limitación de la herramienta que la generó. **Al instalar hay que renombrarla a `.github/`.**
 
@@ -116,6 +129,70 @@ Corre semanalmente (lunes) y lee del backlog de Linear los tickets que **todaví
 > **⚠️ GitHub Models fue retirado el 30/07/2026.** Por eso NO usamos `actions/ai-inference`: esa API ya no existe. Este paquete llama directo a un proveedor externo.
 
 > **Sobre el "cron":** el horario lo pone GitHub Actions con la línea `cron:` de cada workflow (en UTC; ya ajustado a hora Argentina en los comentarios).
+
+### Agente 2.1 — QA PR Review Agent (`qa-review.yml` → reusable workflow)
+
+Es el único agente cuya lógica **no** se copia al repo de desarrollo: vive en
+`agents-copilot/.github/` y se invoca como *reusable workflow*. El repo destino recibe 10
+líneas. Así los criterios se actualizan en un solo lugar y todos los repos los toman al toque.
+
+**Qué produce.** Una **GitHub Review en estado `PENDING`** — un borrador que **solo ve el QA**.
+El developer no ve nada hasta que el QA hace Submit. El agente analiza, propone y prepara; no
+aprueba, no pide cambios, no mergea y no toca código.
+
+```
+PR → contexto + checks determinísticos + Linear
+   → Scout (¿qué necesito mirar del repo?) → lectura de esos archivos
+   → Reviewer → review.json → validador determinístico → Pending Review
+   → el QA edita, borra falsos positivos, agrega lo suyo y hace Submit
+```
+
+**Por qué dos pasos de LLM.** El Scout decide qué archivos y búsquedas necesita; nuestro código
+los resuelve (solo lectura, sin acceso al filesystem desde el modelo) y recién ahí el Reviewer
+razona. Da comportamiento agentic sin mandar el repo entero al modelo y sin depender de tool
+calling, LangGraph, MCP ni un servidor.
+
+**Criterios.** `github/skills/pr-review/SKILL.md` (bugs, seguridad, RF) **más**
+`references/qa-criteria.md` (QA-01…QA-10: scope y tamaño, comentarios, dependencias, debugging,
+evidencia visual, hardcoding, assets, componentización/márgenes, idioma). Máximo **5 findings**
+por review, con positivos reales. QA-08 (borrar branches) no lo revisa el agente: se resuelve
+con *Automatically delete head branches*.
+
+**Setup (una vez).**
+
+| Qué | Dónde |
+|---|---|
+| Secret `QA_GITHUB_TOKEN` | Repo de desarrollo. Fine-grained PAT **de la persona que hace QA** — una pending review solo la ve quien la creó. Permisos: en el repo de desarrollo `Contents: Read`, `Pull requests: Read and write`, `Metadata: Read`; en `agents-copilot` `Contents: Read`, `Metadata: Read`. |
+| Secret `LLM_API_KEY` | Repo de desarrollo. Key de OpenRouter (o del proveedor que se configure). |
+| Secret `LINEAR_API_KEY` | Opcional. Sin ella el agente **omite** QA-05 y no compara scope contra el ticket, en vez de inventar. |
+| Acceso a los workflows | `agents-copilot` → Settings → Actions → General → Access: permitir que los repos de la organización usen sus workflows. Sin esto el `uses:` del wrapper falla. |
+| Auto-delete de branches | Repo de desarrollo → Settings → General → Pull Requests. Resuelve QA-08. |
+
+**Modelo.** Se pasa como input del workflow (`llm_model`), nunca hardcodeado. Default:
+`minimax/minimax-m3:free` vía OpenRouter. Cambiarlo es editar una línea del wrapper.
+
+> ⚠️ La cuenta **free** de OpenRouter tiene un tope de ~50 requests/día en modelos `:free`, y
+> cada PR consume 2 (Scout + Reviewer): unas 25 PRs por día. Con USD 10 de crédito el tope sube
+> a 1000/día.
+
+**Probarlo sin GitHub Actions.** El pipeline completo corre local contra una PR real:
+
+```bash
+.github/scripts/qa-review/run-local.sh SportmatchOrg/sportmatch 18          # dry run
+.github/scripts/qa-review/run-local.sh SportmatchOrg/sportmatch 18 --keep   # + guarda prompts
+.github/scripts/qa-review/run-local.sh SportmatchOrg/sportmatch 18 --publish
+```
+
+Lee la config del LLM de un `.env` en la raíz (ignorado por git). Es la herramienta del pilot:
+permite iterar sobre `qa-criteria.md` y ver el efecto en findings reales sin esperar a un
+workflow.
+
+**Salvaguardas.** El modelo nunca ve el `QA_GITHUB_TOKEN`. Los checkouts van sin credenciales
+persistidas. El validador aborta si el workspace quedó modificado, si el head SHA no es el
+esperado, si hay más de 5 findings, si un criterio o severidad no existe, o si el JSON es
+inválido — y **degrada a global** cualquier finding inline cuya línea no pertenezca al diff, en
+vez de adivinar una posición. Si la PR recibió commits nuevos durante el análisis, no publica:
+la corrida de ese push genera el borrador actualizado.
 
 ## Notas / ajustes posibles
 

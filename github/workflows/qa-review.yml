@@ -1,0 +1,36 @@
+name: QA Review
+
+# Wrapper. Toda la lógica del QA PR Review Agent vive en
+# SportmatchOrg/agents-copilot: acá solo se declara cuándo corre.
+#
+# Qué hace: al abrir o actualizar una PR a dev/main, prepara una GitHub Review
+# en estado PENDING a nombre del QA, con un resumen, lo positivo y hasta 5
+# findings (inline o generales) según los criterios QA-01…QA-10.
+#
+# La review NO se envía sola y el developer NO la ve: queda como borrador del
+# QA, que edita, borra falsos positivos, agrega lo suyo y recién ahí elige
+# Approve / Comment / Request changes y hace Submit.
+#
+# Secrets necesarios en ESTE repo (secrets: inherit los pasa al workflow central):
+#   QA_GITHUB_TOKEN  Fine-grained PAT del QA. Una pending review solo la ve quien
+#                    la creó, así que tiene que ser el token de una persona.
+#                    Permisos: en este repo -> Contents: Read,
+#                              Pull requests: Read and write, Metadata: Read
+#                              en agents-copilot -> Contents: Read, Metadata: Read
+#   LLM_API_KEY      API key de OpenRouter (o del proveedor que se configure).
+#   LINEAR_API_KEY   Opcional. Sin ella se omiten QA-01 (scope) y QA-05 (evidencia).
+#
+# Para cambiar de modelo no hace falta tocar código: se pasa `llm_model` acá abajo.
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+    branches: [dev, main]
+
+jobs:
+  qa-review:
+    # Mientras la PR está en draft el developer sigue trabajando: no metemos ruido.
+    # Al marcarla "Ready for review" se dispara `ready_for_review` y corre.
+    if: github.event.pull_request.draft == false
+    uses: SportmatchOrg/agents-copilot/.github/workflows/qa-review-reusable.yml@main
+    secrets: inherit

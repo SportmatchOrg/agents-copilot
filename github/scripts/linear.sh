@@ -12,6 +12,12 @@
 #     JSON del issue (id, identifier, title, description, url, state) o
 #     nada si no existe.
 #
+#   linear.sh issue-context <IDENT>
+#     Igual que find-by-identifier pero además trae comentarios y attachments,
+#     y calcula `hasVisualEvidence`: si el ticket tiene screenshots o videos
+#     (imágenes embebidas en la descripción/comentarios, o attachments de
+#     imagen/video). Lo usa el QA PR Review Agent para el criterio QA-05.
+#
 #   linear.sh team-id <TEAM_KEY>
 #     Resuelve el UUID interno de un equipo a partir de su key (ej. "SPM").
 #     Necesario para crear issues nuevos. Imprime el UUID o nada.
@@ -39,7 +45,7 @@ gql() { # $1 = payload JSON completo (query/mutation + variables)
     -d "$1" 2>/dev/null
 }
 
-cmd="${1:?uso: linear.sh <find-by-identifier|team-id|comment|create-issue> ...}"
+cmd="${1:?uso: linear.sh <find-by-identifier|issue-context|team-id|comment|create-issue> ...}"
 shift
 
 case "$cmd" in
@@ -48,6 +54,28 @@ case "$cmd" in
     PAYLOAD=$(jq -n --arg id "$IDENT" \
       '{query:"query($id:String!){ issue(id:$id){ id identifier title description url state{name} } }", variables:{id:$id}}')
     gql "$PAYLOAD" | jq -c '.data.issue // empty' 2>/dev/null
+    ;;
+
+  issue-context)
+    IDENT="${1:?falta el identificador, ej. SPM-42}"
+    PAYLOAD=$(jq -n --arg id "$IDENT" \
+      '{query:"query($id:String!){ issue(id:$id){ id identifier title description url createdAt state{name type} assignee{name} labels{nodes{name}} comments(first:30){ nodes{ body createdAt user{name} } } attachments(first:30){ nodes{ title subtitle url } } } }", variables:{id:$id}}')
+    # `hasVisualEvidence` se calcula acá (no en el agente) para que el criterio
+    # QA-05 sea un hecho verificable y no una interpretación del modelo.
+    gql "$PAYLOAD" | jq -c '
+      (.data.issue // empty)
+      | . as $i
+      | ([$i.description // ""] + [$i.comments.nodes[]?.body // ""] | join("\n")) as $text
+      | [$i.attachments.nodes[]?.url // ""] as $urls
+      | $i + {
+          hasVisualEvidence: (
+            ($text | test("!\\[[^\\]]*\\]\\("; "i"))
+            or ($text | test("uploads\\.linear\\.app"; "i"))
+            or ($text | test("https?://[^ )]+\\.(png|jpe?g|gif|webp|mp4|mov|webm)"; "i"))
+            or (($urls | map(select(test("uploads\\.linear\\.app|\\.(png|jpe?g|gif|webp|mp4|mov|webm)$"; "i"))) | length) > 0)
+          )
+        }
+    ' 2>/dev/null
     ;;
 
   team-id)

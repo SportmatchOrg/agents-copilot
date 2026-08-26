@@ -32,13 +32,15 @@ fi
 
 # --- 2. github/ -> .github/ (el renombrado clave) --------------------------
 mkdir -p "$TARGET/.github/chatmodes" \
-         "$TARGET/.github/skills/pr-review" \
+         "$TARGET/.github/skills/pr-review/references" \
          "$TARGET/.github/workflows" \
          "$TARGET/.github/scripts"
 
 cp "$SCRIPT_DIR/github/copilot-instructions.md"     "$TARGET/.github/"
 cp "$SCRIPT_DIR/github/chatmodes/"*.chatmode.md     "$TARGET/.github/chatmodes/"
 cp "$SCRIPT_DIR/github/skills/pr-review/SKILL.md"   "$TARGET/.github/skills/pr-review/"
+cp "$SCRIPT_DIR/github/skills/pr-review/references/qa-criteria.md" \
+                                                    "$TARGET/.github/skills/pr-review/references/"
 cp "$SCRIPT_DIR/github/workflows/"*.yml             "$TARGET/.github/workflows/"
 cp "$SCRIPT_DIR/github/scripts/llm.sh"              "$TARGET/.github/scripts/"
 cp "$SCRIPT_DIR/github/scripts/linear.sh"           "$TARGET/.github/scripts/"
@@ -49,6 +51,7 @@ echo ""
 echo "Próximos pasos en el repo destino:"
 echo "  1. Cargá los secrets (una vez, en el repo):"
 echo "       gh secret set LLM_API_KEY              --repo <owner/repo>"
+echo "       gh secret set QA_GITHUB_TOKEN         --repo <owner/repo>   # PAT del QA, ver abajo"
 echo "       gh secret set LINEAR_API_KEY           --repo <owner/repo>"
 echo "       gh secret set DISCORD_WEBHOOK_QA       --repo <owner/repo>"
 echo "       gh secret set DISCORD_WEBHOOK_PLANNING --repo <owner/repo>"
@@ -62,3 +65,15 @@ echo "       gh variable set LINEAR_TEAM_KEY --repo <owner/repo>   # ej. SPM"
 echo "  2. Commiteá a la rama base (dev/main) para que los workflows se activen:"
 echo "       git add AGENTS.md .github && git commit -m 'chore: add AI agents' && git push"
 echo "  3. (Copilot) activá el code review automático en Settings → Code review del repo."
+echo "  4. QA PR Review Agent (qa-review.yml) — setup adicional, una vez:"
+echo "     a. QA_GITHUB_TOKEN es un Fine-Grained PAT de la PERSONA que hace QA."
+echo "        Una pending review solo la ve quien la creó: con el token del bot,"
+echo "        el QA no vería su propio borrador."
+echo "        Permisos — en este repo:      Contents: Read"
+echo "                                      Pull requests: Read and write"
+echo "                                      Metadata: Read"
+echo "                  en agents-copilot:  Contents: Read, Metadata: Read"
+echo "     b. En SportmatchOrg/agents-copilot → Settings → Actions → General →"
+echo "        Access: permitir que los repos de la organización usen sus workflows."
+echo "     c. Settings → General → Pull Requests → Automatically delete head"
+echo "        branches (resuelve el criterio QA-08 sin gastar tokens)."
