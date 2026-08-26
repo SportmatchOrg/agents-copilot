@@ -50,10 +50,31 @@ on:
         description: Opcional. Sin ella, QA-01 (scope) y QA-05 se omiten.
         required: false
 
+concurrency:
+  # Un solo análisis activo por PR: si el developer pushea dos veces seguidas,
+  # se cancela el viejo y solo se analiza el HEAD más reciente.
+  group: qa-review-${{ github.repository }}-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pull-requests: read
+
 jobs:
-  ping:
+  qa-review:
     runs-on: ubuntu-latest
+    # PRs de forks: GitHub no expone secrets ahí, y no usamos pull_request_target
+    # para saltear esa protección (plan §28). Las draft PRs esperan a ready_for_review.
+    if: >-
+      github.event.pull_request.draft == false &&
+      github.event.pull_request.head.repo.full_name == github.repository
+
+    env:
+      TARGET: ${{ github.workspace }}/target
+      AGENTS: ${{ github.workspace }}/agents-copilot
+      SCRIPTS: ${{ github.workspace }}/agents-copilot/.github/scripts/qa-review
+      PR_NUMBER: ${{ github.event.pull_request.number }}
+      HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+
     steps:
-      - run: |
-          echo "on: block OK"
-          echo "model=${{ inputs.llm_model }} limit=${{ inputs.pr_size_limit }}"
+      - run: echo "concurrency + permissions + job header OK"
