@@ -25,6 +25,7 @@ Env: QA_GITHUB_TOKEN
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import sys
@@ -42,8 +43,19 @@ MARKER_BASE = "<!-- sportmatch-qa-agent"
 AGENT_COMMENT_PREFIX = "**QA-"
 
 
-def build_marker(head_sha: str, n_comments: int) -> str:
-    return f"{MARKER_BASE} sha={head_sha[:8]} comments={n_comments} -->"
+def comments_digest(bodies: list[str]) -> str:
+    """Huella del contenido de los comentarios del agente.
+
+    La cuenta sola no alcanza: si el QA *edita* un comentario conservando el
+    prefijo, la cantidad no cambia y su edición se perdería al regenerar.
+    """
+    joined = "\n\x00".join(sorted(b.strip() for b in bodies))
+    return hashlib.sha256(joined.encode("utf-8")).hexdigest()[:12]
+
+
+def build_marker(head_sha: str, comment_bodies: list[str]) -> str:
+    return (f"{MARKER_BASE} sha={head_sha[:8]} comments={len(comment_bodies)} "
+            f"h={comments_digest(comment_bodies)} -->")
 
 
 def parse_marker(body: str) -> dict | None:
@@ -161,14 +173,26 @@ def is_untouched(repo: str, pr: int, token: str, review: dict) -> tuple[bool, st
     if status != 200 or not isinstance(comments, list):
         return False, f"no se pudieron leer sus comentarios (HTTP {status})"
 
+    bodies = [c.get("body") or "" for c in comments]
+
     expected = fields.get("comments")
-    if expected is not None and str(len(comments)) != expected:
-        return False, (f"tiene {len(comments)} comentarios y el agente había dejado "
+    if expected is not None and str(len(bodies)) != expected:
+        return False, (f"tiene {len(bodies)} comentarios y el agente había dejado "
                        f"{expected}")
 
-    for c in comments:
-        if not (c.get("body") or "").startswith(AGENT_COMMENT_PREFIX):
+    for body in bodies:
+        if not body.startswith(AGENT_COMMENT_PREFIX):
             return False, "tiene al menos un comentario que no escribió el agente"
+
+    expected_hash = fields.get("h")
+    if expected_hash is None:
+        # Marker viejo, sin huella de contenido. Se acepta, pero una edición del
+        # QA sobre un comentario del agente no se detectaría.
+        print("⚠️  El borrador tiene un marker sin huella de contenido (formato "
+              "anterior): no puedo detectar ediciones sobre sus comentarios.",
+              file=sys.stderr)
+    elif comments_digest(bodies) != expected_hash:
+        return False, "el QA editó el texto de alguno de sus comentarios"
 
     return True, ""
 
@@ -299,7 +323,8 @@ def main() -> int:
         if f["kind"] == "inline"
     ]
 
-    body = render_body(review, linear, build_marker(args.head_sha, len(comments)))
+    body = render_body(review, linear,
+                       build_marker(args.head_sha, [c["body"] for c in comments]))
 
     (ctx / "review-body.md").write_text(body + "\n", encoding="utf-8")
     (ctx / "review-comments.json").write_text(
@@ -368,10 +393,11 @@ def main() -> int:
             f"- **{f['criterion']} · {f['severity']}** — `{f['path']}:{f['line']}`: "
             f"{f['message']}"
             for f in review["findings"] if f["kind"] == "inline")
-        fallback = render_body(review, linear, build_marker(args.head_sha, 0)).replace(
-            build_marker(args.head_sha, 0),
-            "### Findings que no se pudieron anclar a una línea\n\n" + extra + "\n\n"
-            + build_marker(args.head_sha, 0))
+        empty_marker = build_marker(args.head_sha, [])
+        fallback = render_body(review, linear, empty_marker).replace(
+            empty_marker,
+            "### Findings que no se pudieron anclar a una línea\n\n" + extra
+            + "\n\n" + empty_marker)
         status, created = request("POST", f"/repos/{args.repo}/pulls/{args.pr}/reviews",
                                   token, {"commit_id": args.head_sha, "body": fallback})
         comments = []
