@@ -199,7 +199,7 @@ def main() -> int:
     ])
 
     (ctx_dir / "reviewer-prompt.txt").write_text(prompt, encoding="utf-8")
-    print(f"[reviewer] prompt: {len(prompt)} caracteres")
+    print(f"[reviewer] prompt: {len(prompt)} caracteres", flush=True)
 
     # temperature=0: dos corridas sobre el mismo HEAD deberían dar la misma
     # review. No lo garantiza (los proveedores de OpenRouter batchean y rutean

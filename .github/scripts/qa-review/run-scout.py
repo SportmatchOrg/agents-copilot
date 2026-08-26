@@ -110,7 +110,7 @@ def main() -> int:
     ])
 
     Path(args.ctx, "scout-prompt.txt").write_text(prompt, encoding="utf-8")
-    print(f"[scout] prompt: {len(prompt)} caracteres")
+    print(f"[scout] prompt: {len(prompt)} caracteres", flush=True)
 
     raw = llm_client.call_json(prompt, label="scout")
 

@@ -111,8 +111,15 @@ def extract_json(text: str) -> dict:
     raise ValueError("la respuesta no contiene un objeto JSON válido")
 
 
+def _backoff(attempt: int) -> int:
+    """Espera exponencial, con techo. Los free tiers devuelven 503 en picos de
+    demanda y se recuperan en decenas de segundos, no en cinco: reintentar
+    rápido solo consume los intentos sin darle tiempo al proveedor."""
+    return min(60, 10 * (2 ** (attempt - 1)))
+
+
 def call_json(prompt: str, *, temperature: float = 0.2, timeout: int = 300,
-              max_http_attempts: int = 3, label: str = "llm") -> dict:
+              max_http_attempts: int = 5, label: str = "llm") -> dict:
     """Llama al modelo y devuelve un dict. Lanza LLMError si no se puede."""
     key, base_url, model = _config()
     messages = [{"role": "user", "content": prompt}]
@@ -142,9 +149,9 @@ def call_json(prompt: str, *, temperature: float = 0.2, timeout: int = 300,
                 use_json_mode = False
                 continue
             if status in RETRYABLE_STATUS and attempt < max_http_attempts:
-                delay = 5 * attempt
+                delay = _backoff(attempt)
                 print(f"[{label}] {last_error}; reintento en {delay}s "
-                      f"({attempt}/{max_http_attempts})", file=sys.stderr)
+                      f"({attempt}/{max_http_attempts})", file=sys.stderr, flush=True)
                 time.sleep(delay)
                 continue
             raise LLMError(f"[{label}] el modelo no respondió: {last_error}")
