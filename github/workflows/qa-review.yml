@@ -17,7 +17,10 @@ name: QA Review
 #                    Permisos: en este repo -> Contents: Read,
 #                              Pull requests: Read and write, Metadata: Read
 #                              en agents-copilot -> Contents: Read, Metadata: Read
-#   LLM_API_KEY      API key de OpenRouter (o del proveedor que se configure).
+#   QA_LLM_API_KEY   API key de OpenRouter para ESTE agente. Va aparte de LLM_API_KEY
+#                    porque los otros agentes del paquete usan Gemini: si compartieran
+#                    secret, la key de uno rompería al otro. Si tu LLM_API_KEY ya es
+#                    del mismo proveedor, podés omitirlo y se usa esa.
 #   LINEAR_API_KEY   Opcional. Sin ella se omiten QA-01 (scope) y QA-05 (evidencia).
 #
 # Para cambiar de modelo no hace falta tocar código: se pasa `llm_model` acá abajo.

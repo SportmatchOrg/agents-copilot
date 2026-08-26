@@ -23,13 +23,19 @@ on:
         type: string
         default: main
       llm_base_url:
-        description: Endpoint chat/completions compatible con OpenAI.
+        description: >
+          Endpoint chat/completions compatible con OpenAI. Default: Gemini, el mismo
+          proveedor que ya usan los otros agentes del paquete, para reutilizar
+          LLM_API_KEY. Para OpenRouter:
+          https://openrouter.ai/api/v1/chat/completions
         type: string
-        default: https://openrouter.ai/api/v1/chat/completions
+        default: https://generativelanguage.googleapis.com/v1beta/openai/chat/completions
       llm_model:
-        description: Modelo del agente. Nunca se hardcodea en el código.
+        description: >
+          Modelo del agente. Nunca se hardcodea en el código: cambiarlo es cambiar
+          este input. Probado también con minimax/minimax-m3:free (OpenRouter).
         type: string
-        default: minimax/minimax-m3:free
+        default: gemini-3.6-flash
       pr_size_limit:
         description: Límite de líneas revisables por PR (QA-01).
         type: number
@@ -46,9 +52,16 @@ on:
           Una pending review solo la ve quien la creó: por eso tiene que ser el
           token del QA y no el GITHUB_TOKEN del bot.
         required: true
+      QA_LLM_API_KEY:
+        description: >
+          API key del proveedor del LLM para ESTE agente. Existe aparte de
+          LLM_API_KEY porque los otros agentes del paquete apuntan a Gemini y
+          este a OpenRouter: si compartieran secret, la key de uno rompería al
+          otro. Si no está, se usa LLM_API_KEY.
+        required: false
       LLM_API_KEY:
-        description: API key del proveedor del LLM (OpenRouter por defecto).
-        required: true
+        description: Fallback, para repos donde ya apunta al mismo proveedor.
+        required: false
       LINEAR_API_KEY:
         description: Opcional. Sin ella, QA-01 (scope) y QA-05 se omiten.
         required: false
@@ -104,8 +117,23 @@ jobs:
           token: ${{ secrets.QA_GITHUB_TOKEN }}
           persist-credentials: false
 
+      # Se pregunta ANTES de gastar llamadas al modelo si esta corrida va a poder
+      # publicar algo. Si el QA ya está trabajando su borrador, no tiene sentido
+      # analizar: el resultado se descartaría igual.
+      - name: Preflight — ¿hay un borrador del QA que preservar?
+        id: preflight
+        env:
+          QA_GITHUB_TOKEN: ${{ secrets.QA_GITHUB_TOKEN }}
+        run: |
+          python3 "$SCRIPTS/create-pending-review.py" --preflight \
+            --ctx "$QA_CTX" \
+            --repo "${{ github.repository }}" \
+            --pr "$PR_NUMBER" \
+            --head-sha "$HEAD_SHA"
+
       # --- Contexto ------------------------------------------------------
       - name: Recolectar contexto del PR y el ticket de Linear
+        if: steps.preflight.outputs.proceed == 'true' 
         env:
           # Solo lectura del propio repo: el PAT no hace falta acá.
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -116,6 +144,8 @@ jobs:
             "$TARGET" "$PR_NUMBER" "${{ github.repository }}" "$QA_CTX"
 
       - name: Checks determinísticos
+        id: checks
+        if: steps.preflight.outputs.proceed == 'true'
         env:
           QA_PR_SIZE_LIMIT: ${{ inputs.pr_size_limit }}
           QA_MAX_ASSET_BYTES: ${{ inputs.max_asset_bytes }}
@@ -130,8 +160,9 @@ jobs:
       # --- Agente (dos pasos) --------------------------------------------
       # Ningún step de acá abajo recibe QA_GITHUB_TOKEN.
       - name: Scout — decidir qué inspeccionar del repo
+        if: steps.preflight.outputs.proceed == 'true' && steps.checks.outputs.has_changes == 'true'
         env:
-          LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
+          LLM_API_KEY: ${{ secrets.QA_LLM_API_KEY || secrets.LLM_API_KEY }}
           LLM_BASE_URL: ${{ inputs.llm_base_url }}
           LLM_MODEL: ${{ inputs.llm_model }}
         run: |
@@ -139,13 +170,15 @@ jobs:
             --ctx "$QA_CTX" --agents-repo "$AGENTS" --target-repo "$TARGET"
 
       - name: Resolver el contexto pedido (solo lectura)
+        if: steps.preflight.outputs.proceed == 'true' && steps.checks.outputs.has_changes == 'true'
         run: |
           python3 "$SCRIPTS/resolve-context.py" \
             --ctx "$QA_CTX" --target-repo "$TARGET"
 
       - name: Reviewer — generar review.json
+        if: steps.preflight.outputs.proceed == 'true' && steps.checks.outputs.has_changes == 'true'
         env:
-          LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
+          LLM_API_KEY: ${{ secrets.QA_LLM_API_KEY || secrets.LLM_API_KEY }}
           LLM_BASE_URL: ${{ inputs.llm_base_url }}
           LLM_MODEL: ${{ inputs.llm_model }}
         run: |
@@ -154,12 +187,14 @@ jobs:
 
       # --- Validación ----------------------------------------------------
       - name: Validar la review antes de tocar GitHub
+        if: steps.preflight.outputs.proceed == 'true' && steps.checks.outputs.has_changes == 'true'
         run: |
           python3 "$SCRIPTS/validate-review.py" \
             --ctx "$QA_CTX" --target-repo "$TARGET" --head-sha "$HEAD_SHA"
 
       # --- Único side effect ---------------------------------------------
       - name: Crear la pending review a nombre del QA
+        if: steps.preflight.outputs.proceed == 'true' && steps.checks.outputs.has_changes == 'true'
         env:
           QA_GITHUB_TOKEN: ${{ secrets.QA_GITHUB_TOKEN }}
         run: |

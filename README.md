@@ -163,7 +163,7 @@ con *Automatically delete head branches*.
 | Qué | Dónde |
 |---|---|
 | Secret `QA_GITHUB_TOKEN` | Repo de desarrollo. Fine-grained PAT **de la persona que hace QA** — una pending review solo la ve quien la creó. Permisos: en el repo de desarrollo `Contents: Read`, `Pull requests: Read and write`, `Metadata: Read`; en `agents-copilot` `Contents: Read`, `Metadata: Read`. |
-| Secret `LLM_API_KEY` | Repo de desarrollo. Key de OpenRouter (o del proveedor que se configure). |
+| Secret `QA_LLM_API_KEY` | Repo de desarrollo. Key de OpenRouter **para este agente**. Va aparte de `LLM_API_KEY` porque los otros 7 agentes del paquete apuntan a Gemini: si compartieran secret, la key de uno rompería al otro. Si tu `LLM_API_KEY` ya es del mismo proveedor, se puede omitir. |
 | Secret `LINEAR_API_KEY` | Opcional. Sin ella el agente **omite** QA-05 y no compara scope contra el ticket, en vez de inventar. |
 | Acceso a los workflows | `agents-copilot` → Settings → Actions → General → Access: permitir que los repos de la organización usen sus workflows. Sin esto el `uses:` del wrapper falla. |
 | Auto-delete de branches | Repo de desarrollo → Settings → General → Pull Requests. Resuelve QA-08. |
@@ -186,6 +186,22 @@ con *Automatically delete head branches*.
 Lee la config del LLM de un `.env` en la raíz (ignorado por git). Es la herramienta del pilot:
 permite iterar sobre `qa-criteria.md` y ver el efecto en findings reales sin esperar a un
 workflow.
+
+**Nunca pisa el trabajo del QA.** GitHub permite **una sola pending review por usuario y por
+PR**, así que cuando el QA edita el borrador del agente su trabajo queda *dentro* de esa misma
+review. Por eso el marker lleva una huella (`sha` del commit + cantidad de comentarios que dejó
+el agente) y, antes de reemplazar nada, el agente verifica que el borrador siga intacto:
+
+| Estado del borrador | Qué hace |
+|---|---|
+| No hay ninguno | Lo crea |
+| Del agente, intacto, de un commit anterior | Lo reemplaza por uno fresco |
+| Del agente, para este mismo commit | No lo toca (regenerar no aportaría nada) |
+| Del agente, pero el QA agregó/editó/borró comentarios | **No lo toca** y avisa por qué |
+| Empezado por el QA desde cero | **No lo toca** |
+
+Esa verificación corre **antes** de llamar al modelo, así que un PR cuyo borrador el QA ya está
+trabajando no consume tokens en cada push.
 
 **Salvaguardas.** El modelo nunca ve el `QA_GITHUB_TOKEN`. Los checkouts van sin credenciales
 persistidas. El validador aborta si el workspace quedó modificado, si el head SHA no es el

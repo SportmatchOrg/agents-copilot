@@ -20,6 +20,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import llm_client  # noqa: E402
+import qa_diff  # noqa: E402
 from qa_context import Context  # noqa: E402
 
 MAX_FILES = 12
@@ -51,7 +52,11 @@ Reglas:
 - Como máximo {MAX_FILES} archivos y {MAX_SEARCHES} búsquedas. Menos es mejor.
 - Los archivos van con su ruta exacta tal como aparece en la estructura del
   repositorio. No inventes rutas.
-- NO pidas archivos que ya están completos en el diff: ya los tenés.
+- NO pidas archivos que ya están completos en el diff: ya los tenés enteros y
+  pedirlos no agrega nada. Abajo está la lista exacta de cuáles son. Si pedís
+  uno de esos, se descarta.
+- Un archivo MODIFICADO sí puede valer la pena: del diff solo ves los hunks, no
+  el archivo entero.
 - Las búsquedas son de texto plano o regex simple (se ejecutan con ripgrep):
   un identificador, un nombre de componente, un import. No frases.
 - Si el diff se explica solo y no necesitás nada, devolvé listas vacías. Es una
@@ -67,6 +72,17 @@ Respondé ÚNICAMENTE este objeto JSON, sin markdown ni backticks:
 """
 
 
+def fully_in_diff(ctx_dir: Path) -> set[str]:
+    """Archivos NUEVOS: el diff ya trae su contenido completo.
+
+    Pedirlos gasta contexto sin aportar nada, y en la práctica los modelos lo
+    hacen igual aunque el prompt lo prohíba. Por eso se filtra en código.
+    """
+    patch = (ctx_dir / "diff.patch").read_text(encoding="utf-8", errors="replace")
+    return {path for path, fd in qa_diff.parse_patch(patch).items()
+            if fd.status == "added" and not fd.is_binary_patch}
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--ctx", required=True)
@@ -74,10 +90,18 @@ def main() -> int:
     ap.add_argument("--target-repo", required=True)
     args = ap.parse_args()
 
+    ctx_dir = Path(args.ctx)
     ctx = Context(args.ctx, args.agents_repo, args.target_repo)
+    already = fully_in_diff(ctx_dir)
+    already_block = (
+        "=== ARCHIVOS QUE YA TENÉS COMPLETOS EN EL DIFF ===\n"
+        "Son nuevos, así que el diff trae todo su contenido. Pedirlos se descarta.\n\n"
+        + ("\n".join(f"  {p}" for p in sorted(already)) or "  (ninguno)"))
+
     prompt = "\n\n".join([
         INSTRUCTIONS,
         ctx.pr_block(),
+        already_block,
         ctx.facts_block(),
         ctx.linear_block(),
         ctx.tree_block(),
@@ -104,11 +128,15 @@ def main() -> int:
                 out.append(item)
         return out[:limit]
 
+    requested = clean("filesToRead", MAX_FILES)
+    dropped = [f for f in requested if f.lstrip("/") in already]
     scout = {
         "reasoning": str(raw.get("reasoning") or "")[:500],
-        "filesToRead": clean("filesToRead", MAX_FILES),
+        "filesToRead": [f for f in requested if f.lstrip("/") not in already],
         "searches": clean("searches", MAX_SEARCHES),
     }
+    for f in dropped:
+        print(f"[scout] ↩︎  descarto {f}: ya viene completo en el diff")
 
     Path(args.ctx, "scout.json").write_text(
         json.dumps(scout, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")

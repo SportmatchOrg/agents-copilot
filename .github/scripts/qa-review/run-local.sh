@@ -71,6 +71,17 @@ git -C "$TARGET" fetch --quiet origin "+refs/pull/$PR/head:refs/qa/pr" \
   "+refs/heads/$BASE_REF:refs/remotes/origin/$BASE_REF"
 git -C "$TARGET" checkout --quiet --detach "$HEAD_SHA"
 
+# Mismo preflight que el workflow: si el QA ya trabajó su borrador, no gastamos
+# llamadas al modelo. Solo aplica con --publish; en dry run siempre se analiza.
+if [ "$PUBLISH" = "1" ]; then
+  : "${QA_GITHUB_TOKEN:?--publish necesita QA_GITHUB_TOKEN (el PAT del QA)}"
+  echo "▸ Preflight…"
+  out="$(python3 "$SCRIPTS/create-pending-review.py" --preflight \
+          --ctx "$CTX" --repo "$SLUG" --pr "$PR" --head-sha "$HEAD_SHA")"
+  echo "$out"
+  case "$out" in *"Se omite el análisis"*) exit 0 ;; esac
+fi
+
 echo "▸ Contexto…"
 LINEAR_SH="$AGENTS/github/scripts/linear.sh" \
   bash "$SCRIPTS/collect-context.sh" "$TARGET" "$PR" "$SLUG" "$CTX"
@@ -80,6 +91,11 @@ python3 "$SCRIPTS/deterministic-checks.py" \
   --patch "$CTX/diff.patch" --repo "$TARGET" \
   --base-sha "$(jq -r .baseRefOid "$CTX/meta.json")" --head-sha "$HEAD_SHA" \
   --out "$CTX/deterministic-facts.json"
+
+if [ "$(jq -r .nothingToReview "$CTX/deterministic-facts.json")" = "true" ]; then
+  echo "⏭️  Nada que revisar (diff vacío o todo no revisable). No se llama al modelo."
+  exit 0
+fi
 
 echo "▸ Scout…"
 python3 "$SCRIPTS/run-scout.py" --ctx "$CTX" --agents-repo "$AGENTS" --target-repo "$TARGET"

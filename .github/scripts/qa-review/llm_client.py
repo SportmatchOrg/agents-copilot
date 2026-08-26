@@ -38,7 +38,8 @@ def _config() -> tuple[str, str, str]:
     key = os.environ.get("LLM_API_KEY", "").strip()
     if not key:
         raise LLMError(
-            "Falta el secret LLM_API_KEY. Sin runtime de agente no se crea la review."
+            "Falta la API key del modelo. Cargá QA_LLM_API_KEY (o LLM_API_KEY) en "
+            "el repo. Sin runtime de agente no se crea la review."
         )
     return (
         key,

@@ -238,6 +238,10 @@ def main() -> int:
         "visualChangeLikely": visual,
         "visualChangeFiles": visual_files,
         "warnings": dep_warnings,
+        # Diff vacío: PR ya mergeada, rama sin cambios contra su base, o todo el
+        # cambio es no revisable (lockfiles, generados). Llamar al modelo acá es
+        # gastar cuota para que responda sobre la nada.
+        "nothingToReview": reviewable == 0,
     }
 
     Path(args.out).write_text(json.dumps(facts, indent=2, ensure_ascii=False) + "\n",
@@ -252,6 +256,15 @@ def main() -> int:
     print(f"Cambio visual:        {visual}")
     for w in dep_warnings:
         print(f"⚠️  {w}")
+
+    if facts["nothingToReview"]:
+        print("⏭️  No hay líneas revisables en esta PR (¿ya está mergeada, o el "
+              "cambio es todo lockfiles/generados?). No se llama al modelo.")
+
+    out = os.environ.get("GITHUB_OUTPUT")
+    if out:
+        with open(out, "a", encoding="utf-8") as fh:
+            fh.write(f"has_changes={'false' if facts['nothingToReview'] else 'true'}\n")
     return 0
 
 

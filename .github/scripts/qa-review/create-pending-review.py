@@ -33,7 +33,31 @@ import urllib.request
 from pathlib import Path
 
 API = "https://api.github.com"
-MARKER = "<!-- sportmatch-qa-agent -->"
+# El marker lleva una huella de lo que el agente escribió (head + cantidad de
+# comentarios). Hace falta porque GitHub permite UNA sola pending review por
+# usuario y por PR: cuando el QA edita el borrador del agente —que es el flujo
+# previsto— su trabajo queda DENTRO de una review que lleva el marker. Sin la
+# huella, la corrida del push siguiente borraría los comentarios del QA.
+MARKER_BASE = "<!-- sportmatch-qa-agent"
+AGENT_COMMENT_PREFIX = "**QA-"
+
+
+def build_marker(head_sha: str, n_comments: int) -> str:
+    return f"{MARKER_BASE} sha={head_sha[:8]} comments={n_comments} -->"
+
+
+def parse_marker(body: str) -> dict | None:
+    """Extrae la huella del marker, o None si el body no es del agente."""
+    idx = (body or "").find(MARKER_BASE)
+    if idx == -1:
+        return None
+    end = body.find("-->", idx)
+    fields = {}
+    for token in body[idx + len(MARKER_BASE):end if end != -1 else None].split():
+        key, _, value = token.partition("=")
+        if value:
+            fields[key] = value
+    return fields
 SEVERITY_ORDER = {"BLOCKER": 0, "MAJOR": 1, "MINOR": 2, "NIT": 3}
 
 
@@ -78,7 +102,7 @@ def api_message(body: object) -> str:
     return str(body)[:400]
 
 
-def render_body(review: dict, linear: dict) -> str:
+def render_body(review: dict, linear: dict, marker: str) -> str:
     findings = review["findings"]
     globals_ = [f for f in findings if f["kind"] == "global"]
     inline = [f for f in findings if f["kind"] == "inline"]
@@ -115,9 +139,80 @@ def render_body(review: dict, linear: dict) -> str:
         "editá, borrá lo que no aplique y agregá lo tuyo. **La decisión y el submit "
         "son humanos.**",
         "",
-        MARKER,
+        marker,
     ]
     return "\n".join(parts)
+
+
+def is_untouched(repo: str, pr: int, token: str, review: dict) -> tuple[bool, str]:
+    """¿El borrador sigue siendo exactamente lo que escribió el agente?
+
+    Solo se reemplaza un borrador intacto. Si el QA agregó, editó o borró
+    comentarios, su trabajo se respeta y no se genera uno nuevo: perder el
+    trabajo del humano es mucho peor que quedarse con findings de un commit
+    anterior, que el QA ve igual al abrir el PR.
+    """
+    fields = parse_marker(review.get("body") or "")
+    if fields is None:
+        return False, "no tiene el marker del agente"
+
+    status, comments = request(
+        "GET", f"/repos/{repo}/pulls/{pr}/reviews/{review['id']}/comments", token)
+    if status != 200 or not isinstance(comments, list):
+        return False, f"no se pudieron leer sus comentarios (HTTP {status})"
+
+    expected = fields.get("comments")
+    if expected is not None and str(len(comments)) != expected:
+        return False, (f"tiene {len(comments)} comentarios y el agente había dejado "
+                       f"{expected}")
+
+    for c in comments:
+        if not (c.get("body") or "").startswith(AGENT_COMMENT_PREFIX):
+            return False, "tiene al menos un comentario que no escribió el agente"
+
+    return True, ""
+
+
+def lifecycle_decision(repo: str, pr: int, token: str, login: str,
+                       head_sha: str) -> tuple[bool, str, list[dict]]:
+    """(seguir, motivo, borradores_a_reemplazar).
+
+    Se llama dos veces: una al principio del workflow (`--preflight`), para no
+    gastar llamadas al modelo cuando ya sabemos que no vamos a publicar, y otra
+    justo antes de crear, porque entre medio pudo cambiar algo.
+    """
+    status, pr_now = request("GET", f"/repos/{repo}/pulls/{pr}", token)
+    if status == 200 and isinstance(pr_now, dict):
+        live_sha = (pr_now.get("head") or {}).get("sha", "")
+        if live_sha and live_sha != head_sha:
+            return False, (f"el PR avanzó ({head_sha[:8]} → {live_sha[:8]}); la corrida "
+                           "del push nuevo genera el borrador actualizado"), []
+        if pr_now.get("state") != "open":
+            return False, f"el PR ya no está abierto (state={pr_now.get('state')})", []
+    else:
+        print(f"⚠️  No pude releer el PR (HTTP {status}: {api_message(pr_now)}); "
+              "sigo con el head SHA del evento.", file=sys.stderr)
+
+    pendings, listed = find_pending(repo, pr, token, login)
+    if not listed:
+        print("⚠️  No pude listar las reviews; puede quedar un borrador duplicado.")
+
+    to_replace = []
+    for r in pendings:
+        fields = parse_marker(r.get("body") or "")
+        if fields is None:
+            return False, (f"el QA ya tiene una review pendiente propia (#{r['id']}); "
+                           "no se toca"), []
+        if fields.get("sha") == head_sha[:8]:
+            return False, (f"ya existe un borrador del agente para este mismo commit "
+                           f"(#{r['id']})"), []
+        untouched, reason = is_untouched(repo, pr, token, r)
+        if not untouched:
+            return False, (f"el borrador #{r['id']} ya fue trabajado por el QA "
+                           f"({reason}); sus comentarios se perderían"), []
+        to_replace.append(r)
+
+    return True, "", to_replace
 
 
 def find_pending(repo: str, pr: int, token: str, login: str) -> tuple[list[dict], bool]:
@@ -140,6 +235,40 @@ def find_pending(repo: str, pr: int, token: str, login: str) -> tuple[list[dict]
     return pendings, True
 
 
+def run_preflight(args) -> int:
+    """Decide temprano si el workflow debe seguir, para no gastar llamadas al
+    modelo en un PR cuyo borrador el QA ya está trabajando."""
+    token = os.environ.get("QA_GITHUB_TOKEN", "").strip()
+    if not token:
+        print("❌ Falta QA_GITHUB_TOKEN.", file=sys.stderr)
+        return 1
+    status, me = request("GET", "/user", token)
+    if status != 200 or not isinstance(me, dict):
+        print(f"❌ El QA_GITHUB_TOKEN no es válido (HTTP {status}: {api_message(me)}).",
+              file=sys.stderr)
+        return 1
+
+    proceed, reason, _ = lifecycle_decision(
+        args.repo, args.pr, token, me["login"], args.head_sha)
+
+    if proceed:
+        print(f"✅ Sin borrador previo que preservar; se analiza el PR #{args.pr}.")
+    else:
+        print(f"⏭️  Se omite el análisis: {reason}.")
+
+    out = os.environ.get("GITHUB_OUTPUT")
+    if out:
+        with open(out, "a", encoding="utf-8") as fh:
+            fh.write(f"proceed={'true' if proceed else 'false'}\n")
+            fh.write(f"reason={reason}\n")
+
+    summary = os.environ.get("GITHUB_STEP_SUMMARY")
+    if summary and not proceed:
+        with open(summary, "a", encoding="utf-8") as fh:
+            fh.write(f"\n### QA Review — omitida\n\n{reason}.\n")
+    return 0
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--ctx", required=True)
@@ -147,16 +276,21 @@ def main() -> int:
     ap.add_argument("--pr", required=True, type=int)
     ap.add_argument("--head-sha", required=True)
     ap.add_argument("--dry-run", action="store_true")
+    ap.add_argument("--preflight", action="store_true",
+                    help="solo decide si vale la pena correr el agente; no publica nada")
     args = ap.parse_args()
 
     ctx = Path(args.ctx)
+
+    if args.preflight:
+        return run_preflight(args)
+
     review = json.loads((ctx / "validated-review.json").read_text(encoding="utf-8"))
     try:
         linear = json.loads((ctx / "linear-issue.json").read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
         linear = {}
 
-    body = render_body(review, linear)
     comments = [
         {"path": f["path"], "line": f["line"], "side": "RIGHT",
          "body": f"**{f['criterion']} · {f['severity']}** — {f['message']}"}
@@ -164,6 +298,8 @@ def main() -> int:
                         key=lambda f: SEVERITY_ORDER.get(f["severity"], 9))
         if f["kind"] == "inline"
     ]
+
+    body = render_body(review, linear, build_marker(args.head_sha, len(comments)))
 
     (ctx / "review-body.md").write_text(body + "\n", encoding="utf-8")
     (ctx / "review-comments.json").write_text(
@@ -192,51 +328,27 @@ def main() -> int:
     login = me["login"]
     print(f"Autenticado como @{login} — la review pendiente va a quedar a su nombre.")
 
-    # --- ¿Sigue siendo el mismo HEAD? --------------------------------------
-    # Si el developer pusheó mientras corría el análisis, los findings ya son de
-    # un código viejo. No se publica: el evento `synchronize` de ese push está
-    # disparando otra corrida que va a analizar el HEAD nuevo (plan §29).
-    status, pr_now = request("GET", f"/repos/{args.repo}/pulls/{args.pr}", token)
-    if status == 200 and isinstance(pr_now, dict):
-        live_sha = (pr_now.get("head") or {}).get("sha", "")
-        if live_sha and live_sha != args.head_sha:
-            print(f"⏭️  El PR avanzó durante el análisis ({args.head_sha[:8]} → "
-                  f"{live_sha[:8]}). No publico findings viejos; la corrida del "
-                  "push nuevo genera el borrador actualizado.")
-            return 0
-        if pr_now.get("state") != "open":
-            print(f"⏭️  El PR ya no está abierto (state={pr_now.get('state')}). "
-                  "No se crea la review.")
-            return 0
-    else:
-        print(f"⚠️  No pude releer el PR (HTTP {status}: {api_message(pr_now)}); "
-              "sigo con el head SHA del evento.", file=sys.stderr)
-
     # --- Lifecycle ---------------------------------------------------------
-    pendings, listed = find_pending(args.repo, args.pr, token, login)
-    manual = [r for r in pendings if MARKER not in (r.get("body") or "")]
-    ours = [r for r in pendings if MARKER in (r.get("body") or "")]
-
-    if manual:
-        # Caso C. Nunca se pisa el trabajo humano.
-        print("⏭️  El QA ya tiene una review pendiente propia en este PR "
-              f"(#{manual[0]['id']}). Automatic draft skipped: no se toca.")
+    proceed, reason, to_replace = lifecycle_decision(
+        args.repo, args.pr, token, login, args.head_sha)
+    if not proceed:
+        print(f"⏭️  No se crea la review: {reason}.")
+        if "trabajado por el QA" in reason:
+            print("   Para obtener un borrador actualizado, enviá o descartá ese "
+                  "primero y volvé a disparar el workflow.")
         return 0
 
-    for r in ours:
-        # Caso B. Se borra la vieja para que no queden findings de un HEAD anterior.
+    for r in to_replace:
         st, rb = request("DELETE", f"/repos/{args.repo}/pulls/{args.pr}/reviews/{r['id']}",
                          token)
         if st in (200, 204):
-            print(f"🗑️  Borrada la pending review anterior del agente (#{r['id']}).")
+            print(f"🗑️  Borrada la pending review anterior del agente (#{r['id']}), "
+                  "que estaba intacta y era de un commit anterior.")
         else:
             print(f"❌ No se pudo borrar la pending review anterior #{r['id']} "
                   f"(HTTP {st}: {api_message(rb)}). Corto acá para no duplicar borradores.",
                   file=sys.stderr)
             return 1
-
-    if not listed:
-        print("⚠️  Como no pude listar las reviews, puede quedar un borrador duplicado.")
 
     # --- Crear la pending review -------------------------------------------
     # Sin `event`: eso es exactamente lo que la deja en PENDING.
@@ -256,9 +368,10 @@ def main() -> int:
             f"- **{f['criterion']} · {f['severity']}** — `{f['path']}:{f['line']}`: "
             f"{f['message']}"
             for f in review["findings"] if f["kind"] == "inline")
-        fallback = body.replace(
-            MARKER,
-            "### Findings que no se pudieron anclar a una línea\n\n" + extra + "\n\n" + MARKER)
+        fallback = render_body(review, linear, build_marker(args.head_sha, 0)).replace(
+            build_marker(args.head_sha, 0),
+            "### Findings que no se pudieron anclar a una línea\n\n" + extra + "\n\n"
+            + build_marker(args.head_sha, 0))
         status, created = request("POST", f"/repos/{args.repo}/pulls/{args.pr}/reviews",
                                   token, {"commit_id": args.head_sha, "body": fallback})
         comments = []
