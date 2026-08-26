@@ -53,18 +53,9 @@ on:
 jobs:
   qa-review:
     runs-on: ubuntu-latest
-    # PRs de forks: GitHub no expone secrets ahí, y no usamos pull_request_target
-    # para saltear esa protección (plan §28). Las draft PRs esperan a ready_for_review.
-    if: >-
-      github.event.pull_request.draft == false &&
-      github.event.pull_request.head.repo.full_name == github.repository
-
     env:
       TARGET: ${{ github.workspace }}/target
-      AGENTS: ${{ github.workspace }}/agents-copilot
-      SCRIPTS: ${{ github.workspace }}/agents-copilot/.github/scripts/qa-review
       PR_NUMBER: ${{ github.event.pull_request.number }}
       HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-
     steps:
-      - run: echo "job header solo: OK"
+      - run: echo "env del job OK — $TARGET $PR_NUMBER $HEAD_SHA"
