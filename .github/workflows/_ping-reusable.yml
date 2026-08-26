@@ -50,12 +50,6 @@ on:
         description: Opcional. Sin ella, QA-01 (scope) y QA-05 se omiten.
         required: false
 
-concurrency:
-  # Un solo análisis activo por PR: si el developer pushea dos veces seguidas,
-  # se cancela el viejo y solo se analiza el HEAD más reciente.
-  group: qa-review-${{ github.repository }}-${{ github.event.pull_request.number }}
-  cancel-in-progress: true
-
 permissions:
   contents: read
   pull-requests: read
@@ -77,4 +71,4 @@ jobs:
       HEAD_SHA: ${{ github.event.pull_request.head.sha }}
 
     steps:
-      - run: echo "concurrency + permissions + job header OK"
+      - run: echo "sin concurrency: OK"
