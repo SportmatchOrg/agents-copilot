@@ -1,0 +1,8 @@
+name: ping (reusable)
+on:
+  workflow_call: {}
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "el reusable de agents-copilot se resolvió OK"
