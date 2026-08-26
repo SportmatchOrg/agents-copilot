@@ -66,6 +66,10 @@ on:
         description: Opcional. Sin ella, QA-01 (scope) y QA-05 se omiten.
         required: false
 
+# Techo de lo que puede usar el GITHUB_TOKEN acá dentro. OJO: esto solo REDUCE
+# lo que el repo que llama le pasa al job; no lo amplía. El wrapper del repo de
+# desarrollo tiene que declarar estos mismos permisos, o GitHub rechaza el
+# workflow sin crear ningún job.
 permissions:
   contents: read
   pull-requests: read

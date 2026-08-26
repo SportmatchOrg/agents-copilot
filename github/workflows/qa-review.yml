@@ -32,6 +32,15 @@ on:
 
 jobs:
   qa-review:
+    # Estos permisos hay que declararlos ACÁ, no alcanza con declararlos en el
+    # workflow central: un workflow llamado solo puede REDUCIR lo que el llamador
+    # le pasa, nunca ampliarlo. Si el repo tiene "Read repository contents"
+    # como permiso por defecto, sin esto GitHub rechaza el workflow entero con
+    # "workflow file issue" y ni siquiera crea el job.
+    permissions:
+      contents: read
+      pull-requests: read
+
     # Mientras la PR está en draft el developer sigue trabajando: no metemos ruido.
     # Al marcarla "Ready for review" se dispara `ready_for_review` y corre.
     if: github.event.pull_request.draft == false
