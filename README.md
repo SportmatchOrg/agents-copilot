@@ -203,6 +203,11 @@ el agente) y, antes de reemplazar nada, el agente verifica que el borrador siga 
 Esa verificación corre **antes** de llamar al modelo, así que un PR cuyo borrador el QA ya está
 trabajando no consume tokens en cada push.
 
+**Si el modelo no responde**, el job termina en **verde**: un check rojo en la PR de un
+developer por un problema del proveedor es ruido que no le corresponde. Queda rastro en la
+anotación de warning del run y en el summary del job, y no se publica ninguna review. El
+próximo push reintenta.
+
 **Salvaguardas.** El modelo nunca ve el `QA_GITHUB_TOKEN`. Los checkouts van sin credenciales
 persistidas. El validador aborta si el workspace quedó modificado, si el head SHA no es el
 esperado, si hay más de 5 findings, si un criterio o severidad no existe, o si el JSON es

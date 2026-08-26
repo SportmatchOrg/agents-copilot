@@ -155,5 +155,4 @@ if __name__ == "__main__":
     try:
         sys.exit(main())
     except llm_client.LLMError as e:
-        print(f"❌ {e}", file=sys.stderr)
-        sys.exit(1)
+        sys.exit(llm_client.report_unavailable(e, "Scout"))

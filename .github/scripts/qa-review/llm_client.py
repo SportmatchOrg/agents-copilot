@@ -31,7 +31,37 @@ _FENCE_RE = re.compile(r"```(?:json)?\s*(.*?)```", re.S)
 
 
 class LLMError(RuntimeError):
-    """Fallo definitivo del runtime del agente. El job debe fallar."""
+    """Fallo definitivo del runtime del agente: no se puede generar la review."""
+
+
+def report_unavailable(error: Exception, step: str) -> int:
+    """El modelo no respondió. No es culpa del developer ni de su código.
+
+    El job termina en VERDE para no pintar un check rojo en la PR de alguien por
+    un problema del proveedor, pero deja rastro en tres lugares: una anotación
+    de warning (visible en la UI de Actions sin abrir el log), el summary del
+    job, y un output que apaga los pasos siguientes. Sin review publicada: no se
+    inventa nada.
+    """
+    print(f"::warning title=QA Review sin generar::{error}")
+    print(f"⚠️  {error}", file=sys.stderr, flush=True)
+
+    out = os.environ.get("GITHUB_OUTPUT")
+    if out:
+        with open(out, "a", encoding="utf-8") as fh:
+            fh.write("llm_unavailable=true\n")
+
+    summary = os.environ.get("GITHUB_STEP_SUMMARY")
+    if summary:
+        with open(summary, "a", encoding="utf-8") as fh:
+            fh.write(
+                f"\n### QA Review — no se generó\n\n"
+                f"El modelo no respondió durante el paso **{step}**, así que no hay "
+                f"borrador para esta corrida.\n\n> `{error}`\n\n"
+                "No es un problema del código de la PR. El próximo push vuelve a "
+                "intentarlo; si se repite, revisar la cuota o el estado del proveedor.\n"
+            )
+    return 0
 
 
 def _config() -> tuple[str, str, str]:

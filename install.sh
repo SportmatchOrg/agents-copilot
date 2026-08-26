@@ -32,15 +32,18 @@ fi
 
 # --- 2. github/ -> .github/ (el renombrado clave) --------------------------
 mkdir -p "$TARGET/.github/chatmodes" \
-         "$TARGET/.github/skills/pr-review/references" \
+         "$TARGET/.github/skills/pr-review" \
          "$TARGET/.github/workflows" \
          "$TARGET/.github/scripts"
 
 cp "$SCRIPT_DIR/github/copilot-instructions.md"     "$TARGET/.github/"
 cp "$SCRIPT_DIR/github/chatmodes/"*.chatmode.md     "$TARGET/.github/chatmodes/"
 cp "$SCRIPT_DIR/github/skills/pr-review/SKILL.md"   "$TARGET/.github/skills/pr-review/"
-cp "$SCRIPT_DIR/github/skills/pr-review/references/qa-criteria.md" \
-                                                    "$TARGET/.github/skills/pr-review/references/"
+# qa-criteria.md NO se instala a propósito (plan §7). El QA PR Review Agent lo
+# lee desde agents-copilot en runtime, así que acá no hace falta; y si viviera
+# bajo .github/skills/ del repo de desarrollo, la review nativa de Copilot
+# podría levantarlo y empezar a publicar comentarios QA sin aprobación humana,
+# que es exactamente lo que este diseño evita.
 cp "$SCRIPT_DIR/github/workflows/"*.yml             "$TARGET/.github/workflows/"
 cp "$SCRIPT_DIR/github/scripts/llm.sh"              "$TARGET/.github/scripts/"
 cp "$SCRIPT_DIR/github/scripts/linear.sh"           "$TARGET/.github/scripts/"

@@ -147,7 +147,7 @@ jobs:
 
       # --- Contexto ------------------------------------------------------
       - name: Recolectar contexto del PR y el ticket de Linear
-        if: steps.preflight.outputs.proceed == 'true' 
+        if: steps.preflight.outputs.proceed == 'true'
         env:
           # Solo lectura del propio repo: el PAT no hace falta acá.
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -174,6 +174,7 @@ jobs:
       # --- Agente (dos pasos) --------------------------------------------
       # Ningún step de acá abajo recibe QA_GITHUB_TOKEN.
       - name: Scout — decidir qué inspeccionar del repo
+        id: scout
         if: steps.preflight.outputs.proceed == 'true' && steps.checks.outputs.has_changes == 'true'
         env:
           LLM_API_KEY: ${{ secrets.QA_LLM_API_KEY || secrets.LLM_API_KEY }}
@@ -184,13 +185,14 @@ jobs:
             --ctx "$QA_CTX" --agents-repo "$AGENTS" --target-repo "$TARGET"
 
       - name: Resolver el contexto pedido (solo lectura)
-        if: steps.preflight.outputs.proceed == 'true' && steps.checks.outputs.has_changes == 'true'
+        if: steps.preflight.outputs.proceed == 'true' && steps.checks.outputs.has_changes == 'true' && steps.scout.outputs.llm_unavailable != 'true'
         run: |
           python3 "$SCRIPTS/resolve-context.py" \
             --ctx "$QA_CTX" --target-repo "$TARGET"
 
       - name: Reviewer — generar review.json
-        if: steps.preflight.outputs.proceed == 'true' && steps.checks.outputs.has_changes == 'true'
+        id: reviewer
+        if: steps.preflight.outputs.proceed == 'true' && steps.checks.outputs.has_changes == 'true' && steps.scout.outputs.llm_unavailable != 'true'
         env:
           LLM_API_KEY: ${{ secrets.QA_LLM_API_KEY || secrets.LLM_API_KEY }}
           LLM_BASE_URL: ${{ inputs.llm_base_url }}
@@ -201,14 +203,14 @@ jobs:
 
       # --- Validación ----------------------------------------------------
       - name: Validar la review antes de tocar GitHub
-        if: steps.preflight.outputs.proceed == 'true' && steps.checks.outputs.has_changes == 'true'
+        if: steps.preflight.outputs.proceed == 'true' && steps.checks.outputs.has_changes == 'true' && steps.scout.outputs.llm_unavailable != 'true' && steps.reviewer.outputs.llm_unavailable != 'true'
         run: |
           python3 "$SCRIPTS/validate-review.py" \
             --ctx "$QA_CTX" --target-repo "$TARGET" --head-sha "$HEAD_SHA"
 
       # --- Único side effect ---------------------------------------------
       - name: Crear la pending review a nombre del QA
-        if: steps.preflight.outputs.proceed == 'true' && steps.checks.outputs.has_changes == 'true'
+        if: steps.preflight.outputs.proceed == 'true' && steps.checks.outputs.has_changes == 'true' && steps.scout.outputs.llm_unavailable != 'true' && steps.reviewer.outputs.llm_unavailable != 'true'
         env:
           QA_GITHUB_TOKEN: ${{ secrets.QA_GITHUB_TOKEN }}
         run: |
