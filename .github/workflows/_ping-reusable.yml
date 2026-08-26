@@ -1,0 +1,100 @@
+name: ping (reusable)
+
+# Prepara una GitHub Review en estado PENDING para una PR del repo que llama a
+# este workflow. La review NO se envía: queda como borrador visible solo para el
+# QA, que la edita y decide Approve / Comment / Request changes.
+#
+# Toda la lógica vive acá, en SportmatchOrg/agents-copilot. El repo de desarrollo
+# solo necesita un wrapper de ~10 líneas (ver github/workflows/qa-review.yml).
+#
+# Pipeline:
+#   checkout → contexto del PR → checks determinísticos → Linear
+#            → Scout (LLM) → resolver (solo lectura) → Reviewer (LLM)
+#            → validador determinístico → Pending Review API
+#
+# El agente nunca ve el QA_GITHUB_TOKEN y nunca escribe en el repo: los checkouts
+# van sin credenciales persistidas y el validador aborta si el workspace cambió.
+
+on:
+  workflow_call:
+    inputs:
+      agents_ref:
+        description: Rama o tag de agents-copilot con la lógica del reviewer.
+        type: string
+        default: main
+      llm_base_url:
+        description: >
+          Endpoint chat/completions compatible con OpenAI. Default: Gemini, el mismo
+          proveedor que ya usan los otros agentes del paquete, para reutilizar
+          LLM_API_KEY. Para OpenRouter:
+          https://openrouter.ai/api/v1/chat/completions
+        type: string
+        default: https://generativelanguage.googleapis.com/v1beta/openai/chat/completions
+      llm_model:
+        description: >
+          Modelo del agente. Nunca se hardcodea en el código: cambiarlo es cambiar
+          este input. Probado también con minimax/minimax-m3:free (OpenRouter).
+        type: string
+        default: gemini-3.6-flash
+      pr_size_limit:
+        description: Límite de líneas revisables por PR (QA-01).
+        type: number
+        default: 1000
+      max_asset_bytes:
+        description: Tamaño a partir del cual un asset nuevo se marca (QA-07).
+        type: number
+        default: 512000
+    secrets:
+      QA_GITHUB_TOKEN:
+        description: >
+          Fine-grained PAT del QA (Contents:Read, Pull requests:Read and write,
+          Metadata:Read en el repo revisado; Contents:Read en agents-copilot).
+          Una pending review solo la ve quien la creó: por eso tiene que ser el
+          token del QA y no el GITHUB_TOKEN del bot.
+        required: true
+      QA_LLM_API_KEY:
+        description: >
+          API key del proveedor del LLM para ESTE agente. Existe aparte de
+          LLM_API_KEY porque los otros agentes del paquete apuntan a Gemini y
+          este a OpenRouter: si compartieran secret, la key de uno rompería al
+          otro. Si no está, se usa LLM_API_KEY.
+        required: false
+      LLM_API_KEY:
+        description: Fallback, para repos donde ya apunta al mismo proveedor.
+        required: false
+      LINEAR_API_KEY:
+        description: Opcional. Sin ella, QA-01 (scope) y QA-05 se omiten.
+        required: false
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  qa-review:
+    runs-on: ubuntu-latest
+
+    # Un solo análisis activo por PR: si el developer pushea dos veces seguidas,
+    # se cancela el viejo y solo se analiza el HEAD más reciente.
+    # Va a nivel de JOB y no de workflow: en un reusable, un `concurrency:` de
+    # workflow hace que GitHub rechace el archivo entero.
+    concurrency:
+      group: qa-review-${{ github.repository }}-${{ github.event.pull_request.number }}
+      cancel-in-progress: true
+
+    # PRs de forks: GitHub no expone secrets ahí, y no usamos pull_request_target
+    # para saltear esa protección (plan §28). Las draft PRs esperan a ready_for_review.
+    # En una sola línea a propósito: un `if:` plegado con `>-` en varias líneas hace
+    # que GitHub rechace el workflow entero ("workflow file issue", sin crear ningún
+    # job). Verificado bisecando contra el sandbox.
+    if: github.event.pull_request.draft == false && github.event.pull_request.head.repo.full_name == github.repository
+
+    env:
+      TARGET: ${{ github.workspace }}/target
+      AGENTS: ${{ github.workspace }}/agents-copilot
+      SCRIPTS: ${{ github.workspace }}/agents-copilot/.github/scripts/qa-review
+      PR_NUMBER: ${{ github.event.pull_request.number }}
+      HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+
+    steps:
+      - run: echo "header real OK"
