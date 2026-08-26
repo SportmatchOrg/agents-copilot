@@ -53,9 +53,6 @@ on:
 jobs:
   qa-review:
     runs-on: ubuntu-latest
-    env:
-      TARGET: ${{ github.workspace }}/target
-      PR_NUMBER: ${{ github.event.pull_request.number }}
-      HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+    if: github.event.pull_request.draft == false && github.event.pull_request.head.repo.full_name == github.repository
     steps:
-      - run: echo "env del job OK — $TARGET $PR_NUMBER $HEAD_SHA"
+      - run: echo "if en una linea OK"
