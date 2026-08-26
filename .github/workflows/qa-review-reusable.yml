@@ -66,12 +66,6 @@ on:
         description: Opcional. Sin ella, QA-01 (scope) y QA-05 se omiten.
         required: false
 
-concurrency:
-  # Un solo análisis activo por PR: si el developer pushea dos veces seguidas,
-  # se cancela el viejo y solo se analiza el HEAD más reciente.
-  group: qa-review-${{ github.repository }}-${{ github.event.pull_request.number }}
-  cancel-in-progress: true
-
 permissions:
   contents: read
   pull-requests: read
@@ -79,6 +73,15 @@ permissions:
 jobs:
   qa-review:
     runs-on: ubuntu-latest
+
+    # Un solo análisis activo por PR: si el developer pushea dos veces seguidas,
+    # se cancela el viejo y solo se analiza el HEAD más reciente.
+    # Va a nivel de JOB y no de workflow: en un reusable, un `concurrency:` de
+    # workflow hace que GitHub rechace el archivo entero.
+    concurrency:
+      group: qa-review-${{ github.repository }}-${{ github.event.pull_request.number }}
+      cancel-in-progress: true
+
     # PRs de forks: GitHub no expone secrets ahí, y no usamos pull_request_target
     # para saltear esa protección (plan §28). Las draft PRs esperan a ready_for_review.
     # En una sola línea a propósito: un `if:` plegado con `>-` en varias líneas hace
