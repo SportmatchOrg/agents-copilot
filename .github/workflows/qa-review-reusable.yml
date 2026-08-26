@@ -86,7 +86,6 @@ jobs:
       github.event.pull_request.head.repo.full_name == github.repository
 
     env:
-      QA_CTX: ${{ runner.temp }}/qa-context
       TARGET: ${{ github.workspace }}/target
       AGENTS: ${{ github.workspace }}/agents-copilot
       SCRIPTS: ${{ github.workspace }}/agents-copilot/.github/scripts/qa-review
@@ -94,6 +93,13 @@ jobs:
       HEAD_SHA: ${{ github.event.pull_request.head.sha }}
 
     steps:
+      # RUNNER_TEMP solo existe dentro de los steps: el contexto `runner` no está
+      # disponible en el `env:` del job. El contexto va fuera del workspace para
+      # que el checkout del repo revisado quede intacto y el validador pueda
+      # exigir `git status --porcelain` vacío.
+      - name: Preparar rutas
+        run: echo "QA_CTX=$RUNNER_TEMP/qa-context" >> "$GITHUB_ENV"
+
       # `ref: head.sha` es importante: por defecto checkout deja el merge commit,
       # y entonces los números de línea del diff no coincidirían con los que
       # GitHub usa para los comentarios inline.
