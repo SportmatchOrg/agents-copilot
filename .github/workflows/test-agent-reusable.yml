@@ -1,0 +1,183 @@
+name: API Test Agent (reusable)
+
+# Agente #9. A diferencia de los otros ocho del paquete, este SÍ es un agente:
+# el modelo elige qué herramienta invocar, recibe el resultado real como input
+# del turno siguiente, y decide cuándo terminó (plan §2).
+#
+# El loop es UN nodo de este workflow. Todo lo que lo rodea es determinístico:
+#
+#   ticket → Postgres + migrate → precarga → ►LOOP◄ → validador → PR draft
+#
+# El agente solo puede escribir `back/test/*.e2e-spec.ts`. El harness queda
+# fuera de su alcance a propósito (plan §3.6): si pudiera tocarlo, podría
+# "arreglar" un test deshabilitando la autenticación o el truncado de la base.
+
+on:
+  workflow_call:
+    inputs:
+      ticket:
+        description: Identifier del ticket de Linear (ej. SPM-42).
+        type: string
+        required: true
+      rf:
+        description: RF a testear. Vacío = se deduce del ticket.
+        type: string
+        default: ""
+      target_repo:
+        description: >
+          Repo donde se escriben los tests. El validador lo cruza contra una
+          allowlist que hoy tiene un solo elemento: sportmatch-sandbox.
+          Ese guardarraíl es el único hardcode del diseño (plan §3.7).
+        type: string
+        default: ""
+      base_branch:
+        description: Rama base de la PR.
+        type: string
+        default: dev
+      service_root:
+        description: >
+          Raíz del servicio dentro del repo. Es `back`, no `backend` — la v1 del
+          plan asumió mal y costó seis secciones. Parametrizado a propósito.
+        type: string
+        default: back
+      llm_model_chain:
+        description: >
+          Cadena de modelos, coma-separada. Vacío = vars.LLM_MODEL_CHAIN, y si
+          tampoco está, el default de models.py (solo modelos :free).
+        type: string
+        default: ""
+      agents_ref:
+        description: Rama o tag de agents-copilot con la lógica del agente.
+        type: string
+        default: main
+    secrets:
+      LLM_API_KEY:
+        required: true
+      LINEAR_API_KEY:
+        required: false
+      AGENTS_REPO_TOKEN:
+        description: PAT con Contents:Read sobre agents-copilot (repo privado).
+        required: false
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  test-agent:
+    runs-on: ubuntu-latest
+
+    # A nivel job y no de workflow: en un reusable, un `concurrency:` de
+    # workflow hace que GitHub rechace el archivo entero.
+    concurrency:
+      group: test-agent-${{ github.repository }}-${{ inputs.ticket }}
+      cancel-in-progress: true
+
+    env:
+      TARGET: ${{ github.workspace }}/target
+      SCRIPTS: ${{ github.workspace }}/agents-copilot/.github/scripts/test-agent
+      SERVICE_ROOT: ${{ inputs.service_root }}
+      TARGET_REPO: ${{ inputs.target_repo || github.repository }}
+      DATABASE_URL: postgresql://root:root@localhost:5432/sportmatch?schema=public
+
+    steps:
+      - name: Preparar rutas
+        run: echo "CTX=$RUNNER_TEMP/test-agent" >> "$GITHUB_ENV"
+
+      # persist-credentials: true acá SÍ, a diferencia del QA agent: este
+      # workflow necesita pushear la rama del bot al final.
+      - name: Checkout del repo destino
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ inputs.target_repo || github.repository }}
+          ref: ${{ inputs.base_branch }}
+          path: target
+          fetch-depth: 0
+
+      - name: Checkout de agents-copilot (lógica del agente)
+        uses: actions/checkout@v4
+        with:
+          repository: SportmatchOrg/agents-copilot
+          ref: ${{ inputs.agents_ref }}
+          path: agents-copilot
+          token: ${{ secrets.AGENTS_REPO_TOKEN || secrets.GITHUB_TOKEN }}
+          persist-credentials: false
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: target/.nvmrc
+          cache: npm
+          cache-dependency-path: target/${{ inputs.service_root }}/package-lock.json
+
+      - name: Traer el ticket de Linear
+        env:
+          LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
+        run: |
+          mkdir -p "$CTX"
+          if [ -z "${LINEAR_API_KEY:-}" ]; then
+            echo "::warning::Sin LINEAR_API_KEY: el agente trabaja sin criterios de aceptación."
+            echo '{}' > "$CTX/linear.json"; exit 0
+          fi
+          curl -s https://api.linear.app/graphql \
+            -H "Authorization: ${LINEAR_API_KEY}" -H "Content-Type: application/json" \
+            -d "{\"query\":\"{ issue(id: \\\"${{ inputs.ticket }}\\\") { identifier title description } }\"}" \
+            | python3 -c 'import json,sys; print(json.dumps((json.load(sys.stdin).get("data") or {}).get("issue") or {}))' \
+            > "$CTX/linear.json"
+
+      # Gate: si el oráculo no está sano, el loop no arranca. Gastar cuota de
+      # modelos free contra un stack roto cuesta un día entero de espera.
+      - name: Levantar el oráculo (Postgres + migrate + spec de ejemplo)
+        run: bash "$SCRIPTS/setup-stack.sh" "$TARGET"
+
+      - name: Precargar contexto
+        run: |
+          python3 "$SCRIPTS/prefetch-context.py" \
+            --ctx "$CTX" --repo "$TARGET" \
+            --ticket "${{ inputs.ticket }}" --rf "${{ inputs.rf }}"
+
+      # Ningún step de acá abajo recibe el token de GitHub salvo el de la PR.
+      - name: Loop del agente
+        id: agent
+        env:
+          LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
+          LLM_BASE_URL: ${{ vars.LLM_BASE_URL }}
+          LLM_MODEL_CHAIN: ${{ inputs.llm_model_chain || vars.LLM_MODEL_CHAIN }}
+        run: |
+          python3 "$SCRIPTS/run-agent.py" \
+            --ctx "$CTX" --repo "$TARGET" --ticket "${{ inputs.ticket }}"
+
+      - name: Validar la salida
+        run: |
+          python3 "$SCRIPTS/validate-output.py" \
+            --ctx "$CTX" --repo "$TARGET" --target-repo "$TARGET_REPO"
+
+      # Único side effect. Con GITHUB_TOKEN el autor es github-actions[bot]
+      # (requerimiento §7.2) y además la PR no dispara otros workflows.
+      - name: Abrir la PR draft
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          python3 "$SCRIPTS/open-test-pr.py" \
+            --ctx "$CTX" --repo "$TARGET" \
+            --ticket "${{ inputs.ticket }}" --base "${{ inputs.base_branch }}"
+
+      - name: Resumen del job
+        if: always()
+        run: |
+          {
+            echo "### API Test Agent — ${{ inputs.ticket }}"
+            echo ""
+            cat "$CTX/summary.md" 2>/dev/null \
+              || echo "El agente no llegó a producir una salida validable."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      # El historial completo del loop: es la única forma de entender por qué el
+      # agente se trabó, y con 5 iteraciones cada corrida cuenta.
+      - name: Guardar el historial del agente
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-agent-${{ inputs.ticket }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/test-agent
+          retention-days: 14
+          if-no-files-found: ignore
