@@ -13,12 +13,27 @@ SERVICE_ROOT="${SERVICE_ROOT:-back}"
 SERVICE="$REPO/$SERVICE_ROOT"
 export DATABASE_URL="${DATABASE_URL:-postgresql://root:root@localhost:5432/sportmatch?schema=public}"
 
+# El compose declara `env_file: ./back/.env` para el servicio `back`. Aunque
+# solo levantemos `db`, CUALQUIER comando de compose parsea el archivo entero y
+# aborta si ese .env no existe — y está gitignoreado, así que en CI nunca está.
+# Se crea desde el ejemplo: el contenedor `back` no se usa, pero compose necesita
+# poder leerlo. Al estar en .gitignore, el validador no lo ve como cambio.
+if [ ! -f "$SERVICE/.env" ]; then
+  echo "→ creando $SERVICE_ROOT/.env (compose lo exige aunque no usemos el servicio back)"
+  cp "$SERVICE/.env.example" "$SERVICE/.env" 2>/dev/null || : > "$SERVICE/.env"
+fi
+
 echo "→ levantando Postgres"
 docker compose -f "$REPO/docker-compose.yml" up -d db
 
 echo "→ esperando el healthcheck"
 for i in $(seq 1 60); do
-  cid=$(docker compose -f "$REPO/docker-compose.yml" ps -q db)
+  cid=$(docker compose -f "$REPO/docker-compose.yml" ps -q db 2>/dev/null || true)
+  if [ -z "$cid" ]; then
+    echo "❌ no se pudo identificar el contenedor de Postgres:"
+    docker compose -f "$REPO/docker-compose.yml" ps -q db || true
+    exit 1
+  fi
   status=$(docker inspect --format '{{.State.Health.Status}}' "$cid" 2>/dev/null || echo starting)
   if [ "$status" = "healthy" ]; then
     echo "  db healthy (${i}s)"
