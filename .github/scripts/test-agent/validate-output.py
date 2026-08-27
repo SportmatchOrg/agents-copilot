@@ -87,13 +87,29 @@ def main() -> int:
 
     specs = [p for p in touched if SPEC_RE.match(p)]
     if not specs:
-        print("⚠️  el agente no dejó ningún spec nuevo; no hay nada que entregar")
+        # Un job VERDE que no produjo tests es peor que uno rojo: entrena a la
+        # gente a ignorar el check. Se pidieron tests y no hay tests — eso es un
+        # fallo de la corrida, aunque la infraestructura haya funcionado.
+        outcome = output.get("outcome")
+        print(f"::error title=El agente no produjo tests::Terminó con "
+              f"outcome={outcome} tras {output.get('iterations')} iteraciones "
+              f"y no dejó ningún spec. Revisá el historial en los artifacts.")
+        print("❌ el agente no dejó ningún spec; no hay nada que entregar",
+              file=sys.stderr)
         empty = {**output, "specs": [], "publish": False, "coverage": [],
                  "coveredCount": 0, "totalAc": len(output.get("criteria") or [])}
         (ctx_dir / "validated.json").write_text(
             json.dumps(empty, indent=2, ensure_ascii=False), encoding="utf-8")
         write_summary(ctx_dir, empty)
-        return 0
+        with (ctx_dir / "summary.md").open("a", encoding="utf-8") as fh:
+            fh.write(
+                "\n### ❌ El agente no produjo tests\n\n"
+                f"Terminó con `outcome={empty.get('outcome')}` tras "
+                f"{empty.get('iterations')} iteraciones sin dejar ningún spec. "
+                "El historial completo de cada turno está en los artifacts del "
+                "job: ahí se ve qué acción intentó y qué le respondió cada "
+                "herramienta.\n")
+        return 1
 
     # --- regla 2 de §4: ningún suspected_bug desapareció --------------------
     final_failing: set[str] = set()

@@ -68,11 +68,31 @@ class ToolboxTest(unittest.TestCase):
                      "back/test/../../../x.e2e-spec.ts"):
             self.assertFalse(self.box.write_spec_file(path, "x").ok, path)
 
-    def test_rechaza_specs_demasiado_largos(self):
+    def test_rechaza_specs_con_demasiadas_lineas(self):
         r = self.box.write_spec_file(
-            "back/test/gigante.e2e-spec.ts", "\n".join(["x"] * 300))
+            "back/test/gigante.e2e-spec.ts",
+            "\n".join(["x"] * (tools.MAX_SPEC_LINES + 10)))
         self.assertFalse(r.ok)
         self.assertIn("demasiado grande", r.output)
+
+    def test_rechaza_specs_con_demasiados_bytes(self):
+        """El límite que realmente protege contra el truncado por max_tokens.
+
+        Una corrida entera terminó con cero specs porque el cap de LÍNEAS
+        bloqueaba archivos que ya estaban por debajo del de bytes. Las líneas
+        son la red de contención; los bytes son el límite real.
+        """
+        r = self.box.write_spec_file(
+            "back/test/pesado.e2e-spec.ts", "x" * (tools.MAX_SPEC_BYTES + 100))
+        self.assertFalse(r.ok)
+        self.assertIn("demasiado grande", r.output)
+
+    def test_acepta_un_spec_de_tamano_realista(self):
+        """~210 líneas es el tamaño natural de un spec de 12 casos. Rechazarlo
+        fue el bug que se comió una corrida."""
+        linea = "  // comentario de relleno para simular un spec real\n"
+        r = self.box.write_spec_file("back/test/realista.e2e-spec.ts", linea * 210)
+        self.assertTrue(r.ok, r.output)
 
     def test_rechaza_contenido_vacio(self):
         self.assertFalse(self.box.write_spec_file("back/test/a.e2e-spec.ts", "  ").ok)

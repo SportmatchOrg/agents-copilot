@@ -40,6 +40,8 @@ Acciones disponibles:
   list_dir        {{"path": "back/src/partidos"}}
   search          {{"term": "findUpcoming"}}
   write_spec_file {{"path": "back/test/<nombre>.e2e-spec.ts", "content": "..."}}
+                  Máximo 400 líneas y 12 KB por archivo. Apuntá a ~150 líneas:
+                  con el harness dado, 10-12 casos entran cómodos.
   run_tests       {{}}   (opcional: {{"pattern": "AC-2"}} para correr un subconjunto)
   finish          {{"summary": "...", "acCoverage": [...], "suspectedBugs": [...]}}
 

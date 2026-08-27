@@ -29,6 +29,13 @@ MAX_ITERATIONS = agent_prompt.MAX_ITERATIONS
 MAX_TEST_RUNS = 3
 MAX_WALL_SECONDS = int(600)
 
+# Un rechazo por VALIDACIÓN DE ENTRADA (archivo muy grande, ruta no permitida)
+# no ejecutó nada: no tiene sentido que cueste lo mismo que una corrida de tests.
+# Con 5 iteraciones, castigar un error de formato es lo que hizo que una corrida
+# entera terminara con cero specs. Se regalan unos pocos reintentos, con tope
+# para que no se vuelva un loop infinito por la puerta de atrás.
+MAX_FREE_RETRIES = 2
+
 READ_ACTIONS = {"read_file", "list_dir", "search"}
 
 
@@ -62,7 +69,10 @@ def main() -> int:
     # lo usa para verificar que ninguno fue reescrito después (plan §4, regla 2).
     failing_snapshots: list[dict] = []
 
-    for iteration in range(1, MAX_ITERATIONS + 1):
+    iteration = 0
+    free_retries = 0
+    while iteration < MAX_ITERATIONS:
+        iteration += 1
         elapsed = time.monotonic() - started
         if elapsed > MAX_WALL_SECONDS:
             print(f"[loop] corte por tiempo ({elapsed:.0f}s)", flush=True)
@@ -134,6 +144,15 @@ def main() -> int:
 
         entry["ok"] = result.ok
         entry["output_head"] = result.output[:300]
+
+        # Rechazo por validación de entrada: no se ejecutó nada, no se cobra.
+        if (not result.ok and action == "write_spec_file"
+                and free_retries < MAX_FREE_RETRIES):
+            free_retries += 1
+            iteration -= 1
+            entry["free_retry"] = free_retries
+            print(f"   ↩︎  no cuenta como iteración "
+                  f"({free_retries}/{MAX_FREE_RETRIES} libres)")
         history.append(entry)
         print(f"   {'✓' if result.ok else '✗'} {result.output.splitlines()[0][:160] if result.output else ''}")
 

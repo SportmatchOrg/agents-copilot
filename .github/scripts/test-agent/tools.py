@@ -36,8 +36,18 @@ TEST_TIMEOUT = int(os.environ.get("TEST_TIMEOUT_SECONDS", "600"))
 # Tope de tamaño por spec (plan §5.6). `write_spec_file` manda el archivo
 # entero: los modelos free capean la salida en 4–8k tokens, y un archivo largo
 # se trunca, rompe el JSON y quema un turno de cinco.
-MAX_SPEC_LINES = 200
-MAX_SPEC_BYTES = 8_192
+#
+# Los valores originales (200 líneas / 8192 bytes) estaban mal calibrados y se
+# comieron una corrida entera: el agente convergió 312 → 272 → 269 → 239 → 208
+# líneas y se quedó sin presupuesto a una iteración de entrar. El detalle que lo
+# delata: desde la segunda iteración ya estaba por DEBAJO del límite de bytes
+# (7822 < 8192) — o sea que el cap de líneas era el único que bloqueaba, y las
+# líneas son un mal proxy del riesgo real, que es el truncado por max_tokens.
+#
+# Ahora manda el tamaño en bytes, holgado respecto de max_tokens=8000, y el cap
+# de líneas queda solo como red de contención contra un archivo absurdo.
+MAX_SPEC_LINES = 400
+MAX_SPEC_BYTES = 12_000
 
 SPEC_RE = re.compile(rf"^{re.escape(SERVICE_ROOT)}/test/[A-Za-z0-9._-]+\.e2e-spec\.ts$")
 

@@ -31,10 +31,15 @@ from llm_client import LLMError  # noqa: E402
 # Default del 2026-08-27, verificado contra openrouter.ai/api/v1/models.
 # Los modelos free aparecen y desaparecen: esto es un default, no una constante.
 # Se pisa con LLM_MODEL_CHAIN (coma-separada).
+# Reordenada con datos de corridas reales (2026-08-27), como pide §11 del plan:
+# glm-5.2 devolvió 429 en las dos corridas (cuota agotada) y minimax-m3 devolvió
+# JSON inválido dos veces seguidas en ambas. Nemotron hizo el 100% del trabajo
+# útil, así que pasa a primario: arrancar por dos modelos que fallan cuesta ~90s
+# de reintentos antes de la primera iteración productiva.
 DEFAULT_CHAIN = [
-    "z-ai/glm-5.2:free",                        # structured_outputs + seed + reasoning_effort
-    "minimax/minimax-m3:free",                  # ya probado en qa-review
-    "nvidia/nemotron-3-super-120b-a12b:free",   # otro proveedor: cuotas independientes
+    "nvidia/nemotron-3-super-120b-a12b:free",   # el único que produjo specs válidos
+    "z-ai/glm-5.2:free",                        # mejor sobre el papel; vuelve cuando reponga cuota
+    "minimax/minimax-m3:free",                  # structured_outputs pero JSON poco confiable
     "openrouter/free",                          # router: último recurso, no determinístico
 ]
 
