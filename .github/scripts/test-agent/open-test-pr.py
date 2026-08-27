@@ -16,12 +16,27 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
 
 BOT_NAME = "sportmatch-test-agent[bot]"
 BOT_EMAIL = "41898282+github-actions[bot]@users.noreply.github.com"
+
+# Muchas orgs prohíben que Actions abra PRs (Settings → Actions → General →
+# "Allow GitHub Actions to create and approve pull requests"). No se puede
+# habilitar por repo si la org lo bloquea.
+#
+# Es el precio del requerimiento de autoría (§7.2): con un PAT la PR figuraría
+# como escrita por una persona, que es justo lo que no queremos. Preferimos que
+# el autor sea el bot y que la PR la abra un humano de un click, antes que
+# falsear la autoría.
+#
+# Cuando pasa, NO se pierde nada: la rama ya está pusheada con los commits del
+# bot. Se deja el link de comparación y el reporte en el summary, y el job
+# termina en verde: una política de la org no es un fallo del agente.
+PR_FORBIDDEN = "not permitted to create or approve pull requests"
 
 
 def run(cmd: list[str], cwd: Path, check: bool = True) -> subprocess.CompletedProcess:
@@ -131,8 +146,47 @@ def main() -> int:
     else:
         proc = run(["gh", "pr", "create", "--draft", "--base", args.base,
                     "--head", branch, "--title", subject,
-                    "--body-file", str(Path(args.ctx, "pr-body.md"))], repo)
+                    "--body-file", str(Path(args.ctx, "pr-body.md"))],
+                   repo, check=False)
+        if proc.returncode != 0:
+            combined = proc.stdout + proc.stderr
+            if PR_FORBIDDEN in combined:
+                return degrade(args, branch, subject, pr_body)
+            print(f"❌ gh pr create falló:\n{combined}", file=sys.stderr)
+            return 1
         print(f"✅ PR draft creada: {proc.stdout.strip()}")
+    return 0
+
+
+def degrade(args, branch: str, subject: str, pr_body: str) -> int:
+    """La rama está pusheada; solo falta que un humano abra la PR."""
+    slug = os.environ.get("TARGET_REPO", "").strip()
+    compare = (f"https://github.com/{slug}/compare/{args.base}...{branch}?expand=1"
+               if slug else f"(rama `{branch}`)")
+
+    print(f"::warning title=PR no creada::La organización no permite que "
+          f"GitHub Actions abra pull requests. La rama {branch} está pusheada "
+          f"con los tests; falta abrir la PR a mano.")
+    print(f"⚠️  PR no creada por política de la organización.")
+    print(f"    Rama pusheada: {branch}")
+    print(f"    Abrila acá:    {compare}")
+
+    summary = Path(args.ctx, "summary.md")
+    extra = (
+        f"\n---\n\n"
+        f"### ⚠️ La PR no se creó\n\n"
+        f"La organización no permite que GitHub Actions abra pull requests "
+        f"(`Settings → Actions → General → Allow GitHub Actions to create and "
+        f"approve pull requests`). No se usa un PAT a propósito: la PR figuraría "
+        f"como escrita por una persona y el requerimiento es que el autor sea el "
+        f"agente.\n\n"
+        f"**Los tests ya están pusheados** en `{branch}`, con los commits "
+        f"firmados por el bot.\n\n"
+        f"👉 **[Abrir la PR]({compare})**\n\n"
+        f"<details><summary>Cuerpo de la PR que se habría creado</summary>\n\n"
+        f"{pr_body}\n\n</details>\n")
+    with summary.open("a", encoding="utf-8") as fh:
+        fh.write(extra)
     return 0
 
 
