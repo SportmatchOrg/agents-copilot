@@ -169,8 +169,18 @@ class ChainClient:
                 # el router elige por nosotros y `self.model` sería la string literal.
                 # Justo la corrida donde más importa saber quién contestó es la única
                 # que no lo diría, y `modelsUsed` alimenta las métricas de §11.
-                return (llm_client.extract_json(content),
-                        parsed_body.get("model") or self.model)
+                reply = llm_client.extract_json(content)
+                # Que sea JSON no alcanza: tiene que ser una ACCIÓN. Un `{}` es
+                # JSON válido, así que `extract_json` no falla, la cadena nunca
+                # avanza y el loop consume turnos con `action: ''` hasta que el
+                # detector de bucle lo mata. Pasó en SPO-168: dos turnos
+                # quemados con glm-5.2, minimax y el router sin estrenar.
+                # Se valida acá para caer en la MISMA rama que un JSON roto:
+                # repreguntar una vez, y recién después cambiar de modelo.
+                if not isinstance(reply, dict) or not str(
+                        reply.get("action") or "").strip():
+                    raise ValueError("el JSON no trae `action`")
+                return reply, parsed_body.get("model") or self.model
             except ValueError as e:
                 attempts_json += 1
                 if attempts_json >= 2:
@@ -183,7 +193,9 @@ class ChainClient:
                 local_messages = local_messages + [
                     {"role": "assistant", "content": content[:2000]},
                     {"role": "user", "content":
-                        "Tu respuesta anterior no era JSON válido. Respondé "
-                        "ÚNICAMENTE el objeto JSON pedido, sin texto alrededor, "
-                        "sin markdown y sin backticks."},
+                        f"Tu respuesta anterior no sirve: {e}. Respondé "
+                        f"ÚNICAMENTE el objeto JSON pedido, con `action` en "
+                        f"read_file, list_dir, search, write_spec_file, "
+                        f"run_tests o finish — sin texto alrededor, sin "
+                        f"markdown y sin backticks."},
                 ]

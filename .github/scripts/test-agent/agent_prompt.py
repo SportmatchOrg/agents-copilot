@@ -65,6 +65,19 @@ Copiá la estructura del spec de ejemplo que tenés más abajo. No reinventes el
 setup: si tu spec no llama a `resetDatabase` en `beforeEach`, los tests se van a
 pisar entre sí y vas a reportar bugs que no existen.
 
+=== TYPESCRIPT EN MODO ESTRICTO ===
+
+El spec se compila con `strict: true` y el validador ABORTA el job si no
+compila: un spec que no compila no vale nada, por más buenos que sean los casos.
+
+El error que más aparece es TS18047 ("X is possibly 'null'"): `findFirst` y
+`findUnique` de Prisma devuelven `T | null`. En un test no querés el chequeo,
+querés que explote si el fixture no está:
+
+  const user = await prisma.user.findFirstOrThrow({{ where: {{ ... }} }});
+
+Usá siempre las variantes `...OrThrow`, o afirmá con `!` si ya sabés que existe.
+
 === CONVENCIÓN OBLIGATORIA: [AC-n] ===
 
 Cada `it()` arranca con el identificador del criterio de aceptación:
