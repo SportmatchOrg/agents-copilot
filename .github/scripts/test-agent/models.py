@@ -165,7 +165,12 @@ class ChainClient:
                 continue
 
             try:
-                return llm_client.extract_json(content), self.model
+                # El modelo REAL, no la entrada de la cadena: con `openrouter/free`
+                # el router elige por nosotros y `self.model` sería la string literal.
+                # Justo la corrida donde más importa saber quién contestó es la única
+                # que no lo diría, y `modelsUsed` alimenta las métricas de §11.
+                return (llm_client.extract_json(content),
+                        parsed_body.get("model") or self.model)
             except ValueError as e:
                 attempts_json += 1
                 if attempts_json >= 2:
