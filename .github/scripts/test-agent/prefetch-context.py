@@ -39,7 +39,14 @@ HARNESS_FILES = [
 EXAMPLE_SPEC = f"{SERVICE_ROOT}/test/partidos.example.e2e-spec.ts"
 SCHEMA = f"{SERVICE_ROOT}/prisma/schema.prisma"
 
-AC_LINE_RE = re.compile(r"^\s*(?:[-*]|\d+[.)])\s+(.{6,})$")
+# Los tickets traen una guía de implementación numerada ANTES de los AC.
+# Sin recortar a la sección, esa guía se cuela como si fueran criterios: en
+# SPO-168 se comía los 12 lugares y no entraba un solo AC real.
+AC_HEADING_RE = re.compile(
+    r"^[ \t]*#*[ \t]*\**[ \t]*criterios de aceptaci[oó]n[ \t]*\**[ \t]*:?[ \t]*$",
+    re.I | re.M)
+# El `[ ]` del checkbox no es parte del criterio.
+AC_LINE_RE = re.compile(r"^\s*(?:[-*]|\d+[.)])\s+(?:\[[ xX]\]\s*)?(.{6,})$")
 
 
 def read(repo: Path, rel: str, limit: int = 20_000) -> str | None:
@@ -67,8 +74,12 @@ def acceptance_criteria(description: str) -> list[str]:
     el agente trabaja sobre la descripción cruda. Es una limitación conocida
     (plan §14.2), no un fallo silencioso: queda registrada en el contexto.
     """
+    text = description or ""
+    heading = AC_HEADING_RE.search(text)
+    if heading:
+        text = text[heading.end():]
     out = []
-    for line in (description or "").splitlines():
+    for line in text.splitlines():
         match = AC_LINE_RE.match(line)
         if match:
             out.append(match.group(1).strip())
