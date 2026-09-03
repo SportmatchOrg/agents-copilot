@@ -18,12 +18,15 @@
 
 ## Decisiones abiertas
 
-**1. Quién es dueño de los `it.failing`.** El agente marca así los tests que
-documentan un incumplimiento del AC. Ya apareció un caso real: el AC-7 de
-SPO-168 pide 400 al mandar `usuarioId` en el body, y `4d6c779` quitó ese
-parámetro a propósito. No es un bug del código: es un ticket que quedó viejo.
-Alguien tiene que decidir si se actualiza el AC o se agrega la validación.
-Sin dueño, los `it.failing` se acumulan y nadie los mira.
+~~**1. Quién es dueño de los `it.failing`.**~~ **Resuelto: no se asigna, ya
+existe.** Cuando el agente encuentra un `suspected_bug`, comenta en el ticket
+de Linear que testeó. El dueño es quien tomó ese ticket — que además escribió
+el AC en discusión y es el único con contexto para decidir si quedó viejo o si
+falta la validación. No hay rol nuevo ni proceso nuevo.
+
+Como respaldo, la PR draft queda asignada a quien disparó la corrida
+(`github.actor`), para que no nazca huérfana cuando no hay ticket de Linear o
+la corrida fue sin `LINEAR_API_KEY`.
 
 ~~**2. Fijar la versión de los agentes.**~~ **Decidido: se quedan en `@main`.**
 La gracia del diseño es actualizar un agente sin tocar `sportmatch`, y un tag

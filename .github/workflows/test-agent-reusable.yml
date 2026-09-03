@@ -159,6 +159,9 @@ jobs:
       - name: Abrir la PR draft
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Para comentar los suspected_bug en el ticket que se testeó (§4):
+          # el dueño de un `it.failing` es quien tomó ese ticket.
+          LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
         run: |
           python3 "$SCRIPTS/open-test-pr.py" \
             --ctx "$CTX" --repo "$TARGET" \

@@ -167,7 +167,79 @@ def main() -> int:
             print(f"❌ gh pr create falló:\n{combined}", file=sys.stderr)
             return 1
         print(f"✅ PR draft creada: {proc.stdout.strip()}")
+
+    asignar(repo, branch)
+    avisar_en_linear(args, data, branch)
     return 0
+
+
+def asignar(repo: Path, branch: str) -> None:
+    """La PR queda a nombre de quien disparó la corrida.
+
+    Sin esto la PR nace huérfana: nadie recibe notificación y termina siendo
+    de nadie. `github.actor` es el que apretó "Run workflow", así que es el
+    dueño razonable por default y no hace falta configurar nada.
+
+    No es fatal: si el actor no es colaborador del repo, se avisa y sigue.
+    """
+    actor = os.environ.get("GITHUB_ACTOR", "").strip()
+    if not actor or actor.endswith("[bot]"):
+        return
+    proc = run(["gh", "pr", "edit", "--add-assignee", actor], repo, check=False)
+    if proc.returncode == 0:
+        print(f"   asignada a @{actor}")
+    else:
+        print(f"::warning::no se pudo asignar la PR a @{actor}; queda sin dueño")
+
+
+def avisar_en_linear(args, data: dict, branch: str) -> None:
+    """Comenta los suspected_bug en el ticket que se testeó (plan §4).
+
+    El dueño de un `it.failing` no se asigna: ya existe. Es quien tomó el
+    ticket, que además es quien escribió el AC en discusión y tiene el
+    contexto para decidir si quedó viejo o si falta la validación.
+
+    Sin esto los bugs viven solo en el cuerpo de una PR draft que nadie sigue.
+    """
+    bugs = data.get("suspectedBugs") or []
+    if not bugs or not os.environ.get("LINEAR_API_KEY"):
+        return
+    # parents: [test-agent, scripts, .github, RAÍZ] — el script vive en
+    # `github/scripts/` (sin punto), que es el directorio plantilla.
+    linear = Path(__file__).resolve().parents[3] / "github" / "scripts" / "linear.sh"
+    if not linear.is_file():
+        return
+
+    issue = run(["bash", str(linear), "find-by-identifier", args.ticket],
+                Path.cwd(), check=False).stdout.strip()
+    try:
+        issue_id = json.loads(issue)["id"]
+    except (ValueError, KeyError, TypeError):
+        print(f"::warning::no se encontró {args.ticket} en Linear; no se comenta")
+        return
+
+    lineas = [
+        f"🤖 **API Test Agent** — tests e2e generados para `{args.ticket}` "
+        f"(rama `{branch}`).", "",
+        f"Encontró **{len(bugs)}** caso(s) donde el código no cumple un criterio "
+        f"de aceptación. Están marcados con `it.failing`: la suite queda verde y "
+        f"el test empieza a fallar el día que se arregle.", "",
+    ]
+    for b in bugs:
+        lineas += [
+            f"**{b.get('ac')}** — {b.get('request')}",
+            f"- Esperado: {b.get('expected')}",
+            f"- Obtenido: {b.get('actual')}",
+            "",
+        ]
+    lineas.append("Cada uno necesita una decisión: ¿lo arregla el código, o el "
+                  "criterio quedó viejo?")
+
+    cmt = Path(args.ctx, "linear-comment.md")
+    cmt.write_text("\n".join(lineas), encoding="utf-8")
+    url = run(["bash", str(linear), "comment", issue_id, str(cmt)],
+              Path.cwd(), check=False).stdout.strip()
+    print(f"   comentado en {args.ticket}" + (f": {url}" if url else ""))
 
 
 def degrade(args, branch: str, subject: str, pr_body: str) -> int:
