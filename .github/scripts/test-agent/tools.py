@@ -155,13 +155,22 @@ class Toolbox:
     def search(self, term: str) -> ToolResult:
         if not (term or "").strip():
             return ToolResult(False, "término vacío")
-        if not shutil.which("rg"):
-            return ToolResult(False, "ripgrep no está disponible en este runner")
-        cmd = ["rg", "--line-number", "--no-heading", "--max-count", "5",
-               "--max-columns", "200"]
-        for d in EXCLUDE_DIRS:
-            cmd += ["-g", f"!{d}/**"]
-        cmd += ["--", term, str(self.service)]
+        # Los runners de GitHub NO traen ripgrep, así que en CI esta herramienta
+        # estuvo muerta desde el día uno: en SPO-171 el agente la llamó, recibió
+        # "no disponible", repitió la misma acción y el detector de bucle mató la
+        # corrida. Nunca se vio antes porque en local `rg` sí está.
+        # grep está en todos lados y hace lo mismo que necesitamos acá.
+        if shutil.which("rg"):
+            cmd = ["rg", "--line-number", "--no-heading", "--max-count", "5",
+                   "--max-columns", "200"]
+            for d in EXCLUDE_DIRS:
+                cmd += ["-g", f"!{d}/**"]
+            cmd += ["--", term, str(self.service)]
+        else:
+            cmd = ["grep", "-rnI", "--max-count=5"]
+            for d in EXCLUDE_DIRS:
+                cmd += [f"--exclude-dir={d}"]
+            cmd += ["-e", term, str(self.service)]
         try:
             proc = subprocess.run(cmd, capture_output=True, text=True,
                                   timeout=SEARCH_TIMEOUT)
@@ -170,7 +179,8 @@ class Toolbox:
         lines = proc.stdout.splitlines()
         if not lines:
             return ToolResult(True, "Sin coincidencias.")
-        shown = [ln.replace(str(self.repo) + "/", "") for ln in lines[:MAX_MATCHES]]
+        shown = [ln.replace(str(self.repo) + "/", "")[:200]
+                 for ln in lines[:MAX_MATCHES]]
         extra = f"\n[...{len(lines) - MAX_MATCHES} coincidencias más]" if len(lines) > MAX_MATCHES else ""
         return ToolResult(True, "\n".join(shown) + extra)
 
