@@ -1,0 +1,52 @@
+name: API Test Agent
+
+# Dado un ticket de Linear, genera tests e2e para la API, LOS CORRE de verdad
+# contra Postgres, itera hasta cubrir los criterios de aceptación, y deja una
+# PR en draft con la cobertura y los posibles bugs que encontró.
+#
+# Se dispara A MANO a propósito: el gasto es una decisión humana, y un loop
+# agéntico automático es la forma más rápida de quemar la cuota diaria de
+# modelos sin que nadie se entere.
+#
+# REQUISITO: el repo tiene que tener el harness e2e en `back/test/`.
+# Se instala con `install-harness.sh` de agents-copilot; sin él, el agente no
+# tiene contra qué correr.
+#
+# Secrets: LLM_API_KEY (obligatorio), LINEAR_API_KEY (sin ella el agente
+# trabaja sin criterios de aceptación y la cobertura no se puede medir).
+
+on:
+  workflow_dispatch:
+    inputs:
+      ticket:
+        description: "Identifier del ticket de Linear (ej. SPO-168)"
+        required: true
+        type: string
+      rf:
+        description: "RF a testear. Vacío = se deduce del ticket."
+        required: false
+        type: string
+        default: ""
+      llm_model_chain:
+        description: "Cadena de modelos, coma-separada. Vacío = default."
+        required: false
+        type: string
+        default: ""
+
+jobs:
+  test-agent:
+    # Van acá: un workflow llamado solo puede REDUCIR lo que el llamador le
+    # pasa, nunca ampliarlo.
+    permissions:
+      contents: write
+      pull-requests: write
+    uses: SportmatchOrg/agents-copilot/.github/workflows/test-agent-reusable.yml@main
+    with:
+      ticket: ${{ inputs.ticket }}
+      rf: ${{ inputs.rf }}
+      llm_model_chain: ${{ inputs.llm_model_chain }}
+      base_branch: dev
+      service_root: back
+    secrets:
+      LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
+      LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}

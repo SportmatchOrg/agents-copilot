@@ -33,9 +33,18 @@ import tools  # noqa: E402
 
 SERVICE_ROOT = os.environ.get("SERVICE_ROOT", "back").strip("/")
 
-# El único hardcode permitido (plan §3.7): el guardarraíl inverso. Agregar el
-# segundo elemento es la decisión explícita de apuntar a producción.
-ALLOWED_REPOS = {"SportmatchOrg/sportmatch-sandbox"}
+# El único hardcode permitido (plan §3.7): el guardarraíl inverso. Agregar un
+# elemento acá es la decisión explícita de apuntar a ese repo, no un descuido
+# de configuración — por eso vive en el código y no en una variable.
+#
+# `sportmatch` se agrega el 2026-09-03. Requisito previo, y el motivo por el
+# que esto no se abrió antes: el repo necesita el harness e2e en `back/test/`
+# (`install-harness.sh`). Sin él, `npm run test:e2e` no existe y el agente no
+# tiene oráculo contra el cual iterar.
+ALLOWED_REPOS = {
+    "SportmatchOrg/sportmatch-sandbox",
+    "SportmatchOrg/sportmatch",
+}
 
 SPEC_RE = re.compile(rf"^{re.escape(SERVICE_ROOT)}/test/[A-Za-z0-9._-]+\.e2e-spec\.ts$")
 # El sufijo opcional: un AC del ticket puede empaquetar varias afirmaciones

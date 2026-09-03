@@ -1,5 +1,7 @@
 # Instalar el harness de tests e2e en `sportmatch`
 
+> **Bloquea a:** `ISSUE-hotfix-triggers-sportmatch.md`. Hacer este primero.
+
 `back/package.json` declara `"test:e2e": "jest --config ./test/jest-e2e.json"`,
 pero **`back/test/` no existe**. Ese script está roto: hoy nadie puede correr
 un test e2e en el repo.
@@ -40,3 +42,5 @@ back/package.json                       +NODE_OPTIONS=--experimental-vm-modules
 - [ ] `cd back && npm run test:e2e` corre sin error.
 - [ ] El diff toca solo lo de arriba.
 - [ ] Commiteado en una PR a `dev`.
+
+Con esto mergeado, se puede avanzar con el hotfix de los workflows.
