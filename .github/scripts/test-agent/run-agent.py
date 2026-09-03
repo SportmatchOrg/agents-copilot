@@ -251,7 +251,9 @@ def main() -> int:
     (ctx_dir / "agent-history.json").write_text(
         json.dumps(history, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
 
-    print(f"\n[loop] outcome={outcome} · {len(history)} iteraciones · "
+    # El mismo conteo que el payload: la verificación forzada no es una
+    # iteración del modelo. El log decía 8 y `validated.json` decía 7.
+    print(f"\n[loop] outcome={outcome} · {payload['iterations']} iteraciones · "
           f"{len(toolbox.written)} specs · {toolbox.test_runs} corridas")
 
     # Sin specs no hay nada que entregar, pero tampoco es un error del job:
