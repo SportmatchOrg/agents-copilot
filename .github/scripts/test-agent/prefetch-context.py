@@ -47,6 +47,12 @@ AC_HEADING_RE = re.compile(
     re.I | re.M)
 # El `[ ]` del checkbox no es parte del criterio.
 AC_LINE_RE = re.compile(r"^\s*(?:[-*]|\d+[.)])\s+(?:\[[ xX]\]\s*)?(.{6,})$")
+# Dónde TERMINA la sección: el siguiente encabezado. Sin esto la lista seguía
+# hasta el final de la descripción y se comía `**Notas**` — en SPO-182 dos
+# bullets de justificación entraron como AC-11 y AC-12, inflando el
+# denominador de la métrica principal de §11.
+SECTION_END_RE = re.compile(
+    r"^[ \t]*(?:#{1,6}[ \t]+\S|\*\*[^*\n]+\*\*[ \t]*:?[ \t]*)$", re.M)
 
 
 def read(repo: Path, rel: str, limit: int = 20_000) -> str | None:
@@ -80,6 +86,8 @@ def acceptance_criteria(description: str) -> list[str]:
         text = text[heading.end():]
     out = []
     for line in text.splitlines():
+        if SECTION_END_RE.match(line):
+            break
         match = AC_LINE_RE.match(line)
         if match:
             out.append(match.group(1).strip())
