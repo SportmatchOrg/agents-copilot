@@ -1,0 +1,119 @@
+name: Traductor de PR a negocio — reusable
+
+# Al abrir/actualizar un PR del repo llamador, traduce el cambio a lenguaje de
+# negocio (qué historia implementa, riesgo, qué probar) y lo postea como
+# comentario del PR + aviso en Discord.
+#
+# Toda la lógica vive acá. El repo llamador solo necesita un wrapper de
+# ~15 líneas (ver github/workflows/pr-business-translator.yml).
+
+on:
+  workflow_call:
+    inputs:
+      agents_ref:
+        description: Rama o tag de agents-copilot con la lógica del agente.
+        type: string
+        default: main
+    secrets:
+      LLM_API_KEY:
+        description: API key del proveedor LLM (Gemini u otro OpenAI-compatible).
+        required: false
+      DISCORD_WEBHOOK:
+        description: Webhook de Discord donde avisar.
+        required: false
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  pr-business-translator:
+    runs-on: ubuntu-latest
+
+    concurrency:
+      group: pr-business-translator-${{ github.repository }}-${{ github.event.pull_request.number }}
+      cancel-in-progress: true
+
+    steps:
+      - name: Checkout del repo llamador
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Checkout de agents-copilot (lógica del agente)
+        uses: actions/checkout@v4
+        with:
+          repository: SportmatchOrg/agents-copilot
+          ref: ${{ inputs.agents_ref }}
+          path: _agents-copilot
+          persist-credentials: false
+
+      - name: Obtener diff y título del PR
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          gh pr view "$PR" --json title,body,headRefName > meta.json
+          gh pr diff "$PR" > diff.txt || echo "(sin diff)" > diff.txt
+
+      - name: Armar el prompt
+        run: |
+          {
+            echo "Sos el Traductor de PRs a Negocio de SportMatch. Traducí este PR para alguien que NO lee código (PM/PO). Español, sin jerga."
+            echo "Secciones EXACTAS: 'Qué hace este cambio' (2-3 líneas), 'Historia que implementa' (RF-01..RF-06; si no mapea a ninguno marcá ⚠️ fuera de backlog; decí si cubre todos los AC o parte), 'Riesgo' (bajo/medio/alto + por qué; ojo con auth, datos personales RNF-03 y flujos Must), 'Qué probar antes de aprobar' (checklist en lenguaje de usuario)."
+            echo "Breve, cabe en un comentario."
+            echo ""
+            echo "=== META ==="; cat meta.json
+            echo ""
+            echo "=== DIFF ==="; head -c 60000 diff.txt
+          } > prompt.txt
+
+      - name: Generar traducción (LLM OpenAI-compatible, default Gemini)
+        id: ai
+        env:
+          LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
+          LLM_BASE_URL: ${{ vars.LLM_BASE_URL }}
+          LLM_MODEL: ${{ vars.LLM_MODEL }}
+        run: |
+          OUT=$(bash _agents-copilot/github/scripts/llm.sh prompt.txt)
+          {
+            echo 'response<<EOF_LLM'
+            echo "$OUT"
+            echo 'EOF_LLM'
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Comentar el PR
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR: ${{ github.event.pull_request.number }}
+          RESPONSE: ${{ steps.ai.outputs.response }}
+        run: |
+          if printf '%s' "$RESPONSE" | grep -q "^LLM_UNAVAILABLE"; then
+            echo "LLM no disponible, no se comenta el PR: $RESPONSE"
+            exit 0
+          fi
+          printf '### 📊 Resumen para negocio (IA)\n\n%s\n\n---\n*Generado automáticamente. La decisión es humana ("Lab4 no codifica").*' "$RESPONSE" > body.md
+          # --edit-last edita el último comentario de este mismo actor (el bot), nunca uno humano.
+          gh pr comment "$PR" --edit-last --create-if-none --body-file body.md
+
+      - name: Avisar por Discord
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK }}
+          RESPONSE: ${{ steps.ai.outputs.response }}
+          PR_URL: ${{ github.event.pull_request.html_url }}
+        run: |
+          python3 - <<'PY'
+          import json, os, urllib.request
+          resp = os.environ["RESPONSE"]
+          hook = os.environ.get("DISCORD_WEBHOOK_URL", "")
+          if not hook:
+              raise SystemExit(0)
+          if resp.startswith("LLM_UNAVAILABLE"):
+              msg = f"⚠️ Traductor de PR a negocio: LLM no disponible ahora mismo, no se tradujo {os.environ['PR_URL']} en este run. ({resp})"
+          else:
+              msg = f"📊 Nuevo PR traducido a negocio: {os.environ['PR_URL']}\n\n" + resp
+          data = json.dumps({"content": msg[:1900]}).encode()
+          req = urllib.request.Request(hook, data=data,
+                                       headers={"Content-Type": "application/json", "User-Agent": "Mozilla/5.0 (compatible; SportMatchBot/1.0)"})
+          urllib.request.urlopen(req)
+          PY
