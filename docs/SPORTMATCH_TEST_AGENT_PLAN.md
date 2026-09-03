@@ -477,9 +477,40 @@ Dos razones que apuntan al mismo lado:
    `pull-requests: write` sin pedirle nada a nadie. El PAT existía para saltear un
    techo de permisos que en el sandbox no existe.
 
-La regla general del paquete **sigue vigente para el repo de producción**: todo
-lo que escriba allá va por el PAT, porque allá el techo de `permissions:` no lo
-controlamos.
+~~La regla general del paquete sigue vigente para el repo de producción: todo lo
+que escriba allá va por el PAT.~~ **⚠️ Corregido (2026-09-03): la premisa era
+falsa y se contradecía con el punto 1 de arriba.**
+
+Un PAT pertenece a una persona, así que mandarlo a producción reintroduce
+exactamente el problema de autoría que este apartado acababa de resolver: la PR
+saldría firmada por Ignacio, contra §7.2 y contra la métrica "0 PRs con autoría
+humana" de §11. Era un conflicto sin salida: o los permisos o la autoría.
+
+No hay tal conflicto. Medido, no supuesto:
+
+| Repo | `default_workflow_permissions` | `can_approve_pull_request_reviews` |
+|---|---|---|
+| `sportmatch` (producción) | **write** | true |
+| `sportmatch-sandbox` | read | true |
+
+**Producción es más permisivo que el sandbox.** Acá arrancamos en `read` y
+funciona porque el workflow declara `permissions:` explícitamente; allá ni
+siquiera haría falta. Entonces en producción también va `GITHUB_TOKEN`, la
+autoría sigue siendo del bot, y §7.2 se cumple en los dos lados.
+
+Ese `can_approve_pull_request_reviews: true` es además el setting que en agosto
+bloqueaba que Actions abriera PRs y motivó el camino de degradación de §7.4. Ya
+está habilitado: las PR #25 y #27 se crearon solas, con autor
+`app/github-actions`.
+
+Lo único que sí hay que resolver al migrar es de otro orden: `agents-copilot` es
+**privado**, así que el workflow de producción necesita poder leer el reusable —
+el sandbox lo resuelve con `AGENTS_REPO_TOKEN`. Es acceso al reusable, no
+autoría.
+
+Si el techo alguna vez reaparece, la salida sin volver al PAT personal es una
+**cuenta de servicio** con su propio PAT, o una GitHub App. Hoy no hace falta
+ninguna de las dos.
 
 ### 7.2. Autoría del agente
 
