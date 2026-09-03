@@ -3,12 +3,16 @@
 > Prioridad: alta (P0) — corrige una regresión activa de 5+ días, no es
 > trabajo nuevo de centralización.
 
-## ⛔ Bloqueado hasta que se mergee
+## ✅ Desbloqueado (2026-09-03)
 
 [agents-copilot#2](https://github.com/SportmatchOrg/agents-copilot/pull/2)
-tiene que estar mergeada a `main` antes de tocar `sportmatch`. Sin eso, los
-wrappers de abajo apuntan a un reusable que no existe todavía en `main` y el
-workflow se rechaza entero.
+está mergeada, y además ya están en `main` los **8** reusables, no solo los 4
+de esa PR.
+
+Validado de verdad, no solo por inspección: se instaló el wrapper de
+`sprint-health` en el sandbox y se disparó. Todos los steps en verde —
+incluido el checkout de agents-copilot, la llamada al LLM y el post a
+Discord. El patrón wrapper → reusable funciona end to end.
 
 ## Problema
 
@@ -61,8 +65,12 @@ los wrappers en un solo commit.
 
 ## Fuera de alcance
 
-- No tocar `dor-readiness`, `repo-onboarding`, `sprint-health`, `weekly-status`
-ni el API Test Agent (en curso por separado) — sus reusables todavía no
-existen.
+- El API Test Agent va por separado: su wrapper es `workflow_dispatch` a mano
+y no es parte de esta regresión.
+- ~~No tocar `dor-readiness`, `repo-onboarding`, `sprint-health`,
+`weekly-status` — sus reusables todavía no existen.~~ **Ya existen** (`c34bb02`),
+así que `install.sh` puede reemplazar los 8 de una. Ojo igual: los 4 nuevos
+solo se probaron con `sprint-health`; los otros tres se validan con la
+checklist de abajo.
 - No aplicar en `main` hasta confirmar que `dev` quedó verde.
 
