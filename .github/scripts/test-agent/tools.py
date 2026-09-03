@@ -63,7 +63,22 @@ NO_TESTS_RE = re.compile(r"Tests:\s+0 total|No tests found", re.I)
 
 
 # Jest lista cada fallo como "● Describe › [AC-7] nombre del test".
-FAILED_AC_RE = re.compile(r"●[^\n]*?\[(AC-\d+)\]")
+FAILED_AC_RE = re.compile(r"●[^\n]*?\[(AC-\d+)[a-z]?\]")
+# Un `it.failing` que PASA rompe la suite con este mensaje. Es la señal de que
+# la marca estaba de más, y destildarla es la única forma de llegar a verde:
+# el validador la necesita para no confundir esa corrección con encubrir un bug.
+FAILING_PASSED_MSG = "Failing test passed"
+
+
+def marcas_de_mas(salida: str) -> list[str]:
+    """AC cuyo `it.failing` pasó, o sea que estaba mal marcado."""
+    out = set()
+    for chunk in salida.split("●")[1:]:
+        if FAILING_PASSED_MSG in chunk:
+            m = re.search(r"\[(AC-\d+)[a-z]?\]", chunk.split("\n")[0])
+            if m:
+                out.add(m.group(1))
+    return sorted(out)
 _IT_RE = re.compile(r"^\s*(?:it|test)(?:\.failing)?\s*\(", re.M)
 
 
@@ -77,10 +92,24 @@ def _slice_block(content: str, start: int) -> str:
 
 
 def ac_block(content: str, ac_id: str) -> str:
-    """El cuerpo del `it('[AC-n] ...')`, vacío si no está."""
-    m = re.search(rf"^\s*(?:it|test)(?:\.failing)?\s*\(\s*['\"`]\s*\[{ac_id}\]",
-                  content, re.M)
-    return _slice_block(content, m.end()) if m else ""
+    """TODOS los cuerpos de `it('[AC-n] ...')`, concatenados. Vacío si no hay.
+
+    Devolver solo el primero era un falso positivo esperando: desde que se
+    aceptan sub-etiquetas, un AC puede tener varios bloques. En SPO-182 el
+    `[AC-7]` era un placeholder honesto —"el guard está mockeado, 401 no se
+    puede observar"— y el `[AC-7b]` de al lado sí verificaba el 404. Mirando
+    solo el primero, el AC figuraba sin verificar.
+
+    Importa que sea exhaustivo porque de acá sale también el aborto de la
+    prohibición 1: un falso positivo ahí mata una corrida buena.
+    """
+    bloques = [
+        _slice_block(content, m.end())
+        for m in re.finditer(
+            rf"^\s*(?:it|test)(?:\.failing)?\s*\(\s*['\"`]\s*\[{ac_id}[a-z]?\]",
+            content, re.M)
+    ]
+    return "\n".join(bloques)
 
 
 def failing_blocks(content: str) -> list[dict]:
@@ -155,13 +184,22 @@ class Toolbox:
     def search(self, term: str) -> ToolResult:
         if not (term or "").strip():
             return ToolResult(False, "término vacío")
-        if not shutil.which("rg"):
-            return ToolResult(False, "ripgrep no está disponible en este runner")
-        cmd = ["rg", "--line-number", "--no-heading", "--max-count", "5",
-               "--max-columns", "200"]
-        for d in EXCLUDE_DIRS:
-            cmd += ["-g", f"!{d}/**"]
-        cmd += ["--", term, str(self.service)]
+        # Los runners de GitHub NO traen ripgrep, así que en CI esta herramienta
+        # estuvo muerta desde el día uno: en SPO-171 el agente la llamó, recibió
+        # "no disponible", repitió la misma acción y el detector de bucle mató la
+        # corrida. Nunca se vio antes porque en local `rg` sí está.
+        # grep está en todos lados y hace lo mismo que necesitamos acá.
+        if shutil.which("rg"):
+            cmd = ["rg", "--line-number", "--no-heading", "--max-count", "5",
+                   "--max-columns", "200"]
+            for d in EXCLUDE_DIRS:
+                cmd += ["-g", f"!{d}/**"]
+            cmd += ["--", term, str(self.service)]
+        else:
+            cmd = ["grep", "-rnI", "--max-count=5"]
+            for d in EXCLUDE_DIRS:
+                cmd += [f"--exclude-dir={d}"]
+            cmd += ["-e", term, str(self.service)]
         try:
             proc = subprocess.run(cmd, capture_output=True, text=True,
                                   timeout=SEARCH_TIMEOUT)
@@ -170,7 +208,8 @@ class Toolbox:
         lines = proc.stdout.splitlines()
         if not lines:
             return ToolResult(True, "Sin coincidencias.")
-        shown = [ln.replace(str(self.repo) + "/", "") for ln in lines[:MAX_MATCHES]]
+        shown = [ln.replace(str(self.repo) + "/", "")[:200]
+                 for ln in lines[:MAX_MATCHES]]
         extra = f"\n[...{len(lines) - MAX_MATCHES} coincidencias más]" if len(lines) > MAX_MATCHES else ""
         return ToolResult(True, "\n".join(shown) + extra)
 
@@ -245,9 +284,31 @@ class Toolbox:
                 "del archivo. Corré sin `pattern` para la suite completa.\n\n"
                 + combined.strip()))
 
+        # El agente tiene que ver la MISMA vara que lo juzga. El validador corre
+        # `tsc --noEmit` y aborta si no compila, pero ts-jest es más permisivo:
+        # las corridas 5, 6 y la de SPO-182 en CI pasaron los tests y murieron
+        # en el compile por algo que al agente nunca se le mostró — un
+        # `possibly null`, un `prisma.$use` que ya no existe en Prisma 7.
+        #
+        # Solo si Jest pasó: con tests en rojo el agente ya tiene qué arreglar,
+        # y tsc cuesta ~20s que no vale la pena pagar ahí.
+        if proc.returncode == 0:
+            tsc = subprocess.run(
+                ["npx", "tsc", "--noEmit", "-p", "tsconfig.json"],
+                cwd=self.service, capture_output=True, text=True,
+                timeout=TEST_TIMEOUT)
+            if tsc.returncode != 0:
+                errores = (tsc.stdout + tsc.stderr).strip()[-2000:]
+                return ToolResult(False, (
+                    "los tests pasan PERO el spec no compila, y el validador "
+                    "aborta la entrega si no compila. Arreglá esto:\n\n"
+                    + errores), {"exit_code": 0, "failed_acs": failed_acs,
+                                 "tsc": False})
+
         verdict = "TODOS LOS TESTS PASARON" if proc.returncode == 0 else "HAY TESTS FALLANDO"
         return ToolResult(
             proc.returncode == 0,
             f"exit code: {proc.returncode} — {verdict}\n\n{combined.strip()}",
-            {"exit_code": proc.returncode, "failed_acs": failed_acs},
+            {"exit_code": proc.returncode, "failed_acs": failed_acs,
+             "marcas_de_mas": marcas_de_mas(combined)},
         )

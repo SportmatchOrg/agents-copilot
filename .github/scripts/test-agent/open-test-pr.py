@@ -104,7 +104,7 @@ def body(data: dict, ticket: str) -> str:
         "",
         f"| | |",
         f"|---|---|",
-        f"| Iteraciones | {data.get('iterations')} / 5 |",
+        f"| Iteraciones | {data.get('iterations')} / {data.get('maxIterations', 7)} |",
         f"| Corridas de tests | {data.get('testRuns')} |",
         f"| Modelos usados | {', '.join(data.get('modelsUsed') or []) or '—'} |",
         f"| Fin | `{data.get('outcome')}` |",

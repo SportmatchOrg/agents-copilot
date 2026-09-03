@@ -128,6 +128,84 @@ class ToolboxTest(unittest.TestCase):
         self.assertEqual(self.box.test_runs, 1)
 
 
+class OraculoCompilaTest(unittest.TestCase):
+    """El agente tiene que ver la misma vara que lo juzga: ts-jest es más
+    permisivo que `tsc --noEmit`, y tres corridas pasaron los tests y murieron
+    en el compile del validador por algo que nunca se les mostró."""
+
+    class Fake:
+        def __init__(self, rc, out=""):
+            self.returncode, self.stdout, self.stderr = rc, out, ""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        (Path(self.tmp.name) / "back").mkdir()
+        self.box = tools.Toolbox(Path(self.tmp.name))
+        self.real = tools.subprocess.run
+        self.cmds = []
+
+    def tearDown(self):
+        tools.subprocess.run = self.real
+        self.tmp.cleanup()
+
+    def fake(self, jest_rc, tsc_rc, tsc_out="x.ts(1,1): error TS2339: nope"):
+        def _run(cmd, **kw):
+            self.cmds.append(cmd[0])
+            if cmd[0] == "npx":
+                return self.Fake(tsc_rc, tsc_out)
+            return self.Fake(jest_rc, "Tests: 3 passed, 3 total")
+        tools.subprocess.run = _run
+
+    def test_jest_verde_y_tsc_rojo_no_es_verde(self):
+        self.fake(jest_rc=0, tsc_rc=1)
+        r = self.box.run_tests()
+        self.assertFalse(r.ok)
+        self.assertIn("no compila", r.output)
+        self.assertIn("TS2339", r.output)
+
+    def test_jest_verde_y_tsc_verde_si_es_verde(self):
+        self.fake(jest_rc=0, tsc_rc=0)
+        self.assertTrue(self.box.run_tests().ok)
+
+    def test_con_jest_rojo_no_se_paga_el_tsc(self):
+        self.fake(jest_rc=1, tsc_rc=0)
+        self.assertFalse(self.box.run_tests().ok)
+        self.assertNotIn("npx", self.cmds)
+
+
+class SearchSinRipgrepTest(unittest.TestCase):
+    """Los runners de GitHub no traen `rg`: en CI esta herramienta estuvo muerta
+    desde el día uno y en SPO-171 mató una corrida por bucle."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        repo = Path(self.tmp.name)
+        (repo / "back" / "src").mkdir(parents=True)
+        (repo / "back" / "src" / "a.ts").write_text("export const findById = 1;\n")
+        (repo / "back" / "node_modules").mkdir()
+        (repo / "back" / "node_modules" / "b.ts").write_text("findById ruido\n")
+        self.box = tools.Toolbox(repo)
+        self._which = tools.shutil.which
+        tools.shutil.which = lambda n: None if n == "rg" else self._which(n)
+
+    def tearDown(self):
+        tools.shutil.which = self._which
+        self.tmp.cleanup()
+
+    def test_encuentra_con_grep(self):
+        r = self.box.search("findById")
+        self.assertTrue(r.ok, r.output)
+        self.assertIn("back/src/a.ts", r.output)
+
+    def test_grep_respeta_las_exclusiones(self):
+        self.assertNotIn("node_modules", self.box.search("findById").output)
+
+    def test_sin_coincidencias_no_es_error(self):
+        r = self.box.search("noExisteEnNingunLado")
+        self.assertTrue(r.ok)
+        self.assertIn("Sin coincidencias", r.output)
+
+
 class NoTestsRegexTest(unittest.TestCase):
     """Un verde de cero tests es un oráculo mintiendo (SPO-168)."""
 

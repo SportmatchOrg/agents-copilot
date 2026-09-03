@@ -25,13 +25,15 @@ import tools as tools_mod  # noqa: E402
 from llm_client import LLMError  # noqa: E402
 
 MAX_ITERATIONS = agent_prompt.MAX_ITERATIONS
-# Con MAX_ITERATIONS=7 el camino ideal es write/test/fix/test/fix/test/finish:
-# tres corridas justas. Quedaba en 3 desde que el techo era 5, así que la
-# corrida de SPO-168 llegó a la iteración 7 queriendo verificar —justo lo que
-# le pedimos— y se la rechazamos. Una de slack, porque una corrida se puede
-# perder en un pattern que no matchea nada.
-MAX_TEST_RUNS = 4
-MAX_WALL_SECONDS = int(600)
+# El presupuesto de corridas lo declara `agent_prompt`, que es donde también se
+# le promete al modelo. Con MAX_ITERATIONS=15 el patrón alterna write/test, así
+# que hacen falta ~7: dejarlo en 4 volvía decorativo el techo de iteraciones.
+# Es el error que ya cometimos al subir 5→7 sin tocar este número.
+MAX_TEST_RUNS = agent_prompt.MAX_TEST_RUNS
+# 15 iteraciones a 40-100s cada una, más las corridas de tests (que ahora
+# incluyen `tsc`). Con 600s el reloj cortaba cerca de la iteración 10 y el
+# techo nuevo no se llegaba a usar nunca.
+MAX_WALL_SECONDS = int(1800)
 
 # Un rechazo por VALIDACIÓN DE ENTRADA (archivo muy grande, ruta no permitida)
 # no ejecutó nada: no tiene sentido que cueste lo mismo que una corrida de tests.
@@ -104,6 +106,9 @@ def main() -> int:
     # que falle y después pase en verde con el assert aflojado es la prohibición
     # 1 de §4, que hasta ahora no tenía ningún mecanismo detrás.
     failed_acs: set[str] = set()
+    # AC cuyo `it.failing` PASÓ: la marca estaba de más y destildarla es
+    # legítimo, no encubrir un bug (§4 regla 2).
+    marcas_de_mas: set[str] = set()
 
     iteration = 0
     free_retries = 0
@@ -176,6 +181,7 @@ def main() -> int:
         elif action == "run_tests":
             result = toolbox.run_tests(str(call_args.get("pattern", "")))
             failed_acs |= set((result.meta or {}).get("failed_acs") or [])
+            marcas_de_mas |= set((result.meta or {}).get("marcas_de_mas") or [])
         else:
             result = tools_mod.ToolResult(
                 False, f"acción desconocida: {action!r}. Usá read_file, list_dir, "
@@ -222,6 +228,7 @@ def main() -> int:
         print("\n[loop] verificación final (no cuenta como iteración)", flush=True)
         final = toolbox.run_tests()
         failed_acs |= set((final.meta or {}).get("failed_acs") or [])
+        marcas_de_mas |= set((final.meta or {}).get("marcas_de_mas") or [])
         history.append({"iteration": None, "model": None, "forced": True,
                         "thought": "verificación final forzada por el arnés",
                         "action": "run_tests", "ok": final.ok,
@@ -245,13 +252,16 @@ def main() -> int:
         "criteria": context.get("criteria") or [],
         "failingSnapshots": failing_snapshots,
         "failedAcs": sorted(failed_acs),
+        "marcasDeMas": sorted(marcas_de_mas),
     }
     (ctx_dir / "agent-output.json").write_text(
         json.dumps(payload, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
     (ctx_dir / "agent-history.json").write_text(
         json.dumps(history, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
 
-    print(f"\n[loop] outcome={outcome} · {len(history)} iteraciones · "
+    # El mismo conteo que el payload: la verificación forzada no es una
+    # iteración del modelo. El log decía 8 y `validated.json` decía 7.
+    print(f"\n[loop] outcome={outcome} · {payload['iterations']} iteraciones · "
           f"{len(toolbox.written)} specs · {toolbox.test_runs} corridas")
 
     # Sin specs no hay nada que entregar, pero tampoco es un error del job:
