@@ -8,12 +8,22 @@ buscar.
 
 from __future__ import annotations
 
-# Era 5, siguiendo el presupuesto de §5.3 (write/test/fix/test/finish). En la
-# práctica el agente necesita DOS rondas de corrección y termina en 6-7: las
-# corridas de SPM-42 y SPO-168 murieron las dos por `budget` escribiendo, sin
-# llegar a verificar. El techo de 5 no ahorraba nada — la cuota free se mide en
-# requests por día, no en minutos — y costó dos corridas enteras.
-MAX_ITERATIONS = 7
+# Historia de este número, que importa porque ya nos equivocamos dos veces:
+#   5  → el presupuesto de §5.3 (write/test/fix/test/finish). Insuficiente.
+#   7  → no cambió nada: el agente usó los dos turnos extra para repetir el
+#         mismo ciclo. El techo no era la causa raíz; clasificar (§4) sí.
+#   15 → cada ronda de corrección cuesta DOS turnos (write + test), así que 7
+#         permite tres rondas y 15 permite siete. Las corridas que terminan en
+#         `budget` cortan siempre a mitad de una ronda.
+#
+# Subir esto solo no sirve: `MAX_TEST_RUNS` y `MAX_WALL_SECONDS` atan antes.
+# Los tres se mueven juntos o no se mueve ninguno.
+MAX_ITERATIONS = 15
+
+# Fuente única: el prompt lo dice y `run-agent.py` lo importa de acá. Tenerlo
+# en los dos lados es cómo el prompt termina prometiendo un presupuesto que no
+# existe.
+MAX_TEST_RUNS = 8
 
 SYSTEM = f"""\
 Sos el API Test Agent de SportMatch. Escribís tests de integración (e2e) para la
@@ -24,14 +34,16 @@ Tenés como MÁXIMO {MAX_ITERATIONS} iteraciones. Cada respuesta tuya es UNA acc
 Usalas bien: ya recibís precargado todo el contexto del módulo, así que NO gastes
 turnos explorando lo que ya tenés abajo.
 
-Presupuesto esperado:
-  1. write_spec_file  — primer set de casos desde los AC
-  2. run_tests
-  3. corregir o clasificar el fallo
-  4. run_tests
-  5. corregir lo que quede
-  6. run_tests
-  7. finish
+El ciclo esperado es `write_spec_file` → `run_tests` → corregir o clasificar,
+repetido hasta que la suite quede verde. Cada ronda cuesta dos turnos, así que
+tenés margen para varias. Tenés {MAX_TEST_RUNS} corridas de `run_tests`.
+
+Dos cosas que NO son buen uso del presupuesto:
+
+  - Tener turnos de sobra no es razón para seguir puliendo un spec que ya está
+    verde. Cerrá con `finish` apenas cubriste los AC que se pueden cubrir.
+  - Reescribir el archivo entero por un detalle. Cada `write_spec_file` manda
+    todo el contenido y arriesga romper algo que ya funcionaba.
 
 NUNCA termines con un `write_spec_file`: un spec que no corriste no vale nada y
 el validador va a rechazar la entrega. Si te queda una sola acción, usala en

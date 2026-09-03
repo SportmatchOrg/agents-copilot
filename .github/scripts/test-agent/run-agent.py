@@ -25,13 +25,15 @@ import tools as tools_mod  # noqa: E402
 from llm_client import LLMError  # noqa: E402
 
 MAX_ITERATIONS = agent_prompt.MAX_ITERATIONS
-# Con MAX_ITERATIONS=7 el camino ideal es write/test/fix/test/fix/test/finish:
-# tres corridas justas. Quedaba en 3 desde que el techo era 5, así que la
-# corrida de SPO-168 llegó a la iteración 7 queriendo verificar —justo lo que
-# le pedimos— y se la rechazamos. Una de slack, porque una corrida se puede
-# perder en un pattern que no matchea nada.
-MAX_TEST_RUNS = 4
-MAX_WALL_SECONDS = int(600)
+# El presupuesto de corridas lo declara `agent_prompt`, que es donde también se
+# le promete al modelo. Con MAX_ITERATIONS=15 el patrón alterna write/test, así
+# que hacen falta ~7: dejarlo en 4 volvía decorativo el techo de iteraciones.
+# Es el error que ya cometimos al subir 5→7 sin tocar este número.
+MAX_TEST_RUNS = agent_prompt.MAX_TEST_RUNS
+# 15 iteraciones a 40-100s cada una, más las corridas de tests (que ahora
+# incluyen `tsc`). Con 600s el reloj cortaba cerca de la iteración 10 y el
+# techo nuevo no se llegaba a usar nunca.
+MAX_WALL_SECONDS = int(1800)
 
 # Un rechazo por VALIDACIÓN DE ENTRADA (archivo muy grande, ruta no permitida)
 # no ejecutó nada: no tiene sentido que cueste lo mismo que una corrida de tests.
