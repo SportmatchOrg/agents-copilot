@@ -324,9 +324,9 @@ hace con la precarga (§5.3) y con `run_tests` sobre un spec puntual.
 |---|---|---|
 | `list_dir` | `path` | Excluye `node_modules`, `dist` |
 | `read_file` | `path` | Solo lectura, 40 KB máx, cualquier ruta del repo |
-| `search` | `term` | ripgrep, sin shell, máx 40 matches |
-| `write_spec_file` | `path`, `content` | **Solo** `back/test/*.e2e-spec.ts`. Máx 200 líneas / 8 KB (§5.6) |
-| `run_tests` | `pattern?` | `npm run test:e2e`. Exit code + stdout recortado a 8 KB |
+| `search` | `term` | ripgrep si está, si no `grep`; sin shell, máx 40 matches |
+| `write_spec_file` | `path`, `content` | **Solo** `back/test/*.e2e-spec.ts`. Máx 400 líneas / 12 KB (§5.6) |
+| `run_tests` | `pattern?` | `npm run test:e2e` **+ `tsc --noEmit` si Jest pasa** (§5.7). Exit code + stdout recortado a 8 KB |
 | `finish` | `summary`, `acCoverage`, `suspectedBugs` | Termina el loop |
 
 El path traversal se valida con la misma función `safe_resolve` que ya usa
@@ -334,8 +334,11 @@ El path traversal se valida con la misma función `safe_resolve` que ya usa
 
 ### 5.3. Presupuesto, precarga y condiciones de parada
 
-- **Máx 5 iteraciones.**
-- **Máx 3 corridas de** `run_tests`.
+- **Máx 7 iteraciones.**
+- **Máx 4 corridas de** `run_tests`.
+- Cerrado el loop, si quedó una escritura sin correr, **el arnés ejecuta una
+  verificación final** que no consume iteración: correr el oráculo no necesita
+  al modelo, y perder un hallazgo por un turno es lo que pasó en SPO-182.
 - **Máx 10 minutos** de wall clock en el step del agente.
 - Corte por **requests al proveedor**: el límite real de los modelos free de
   OpenRouter es la cuota diaria, no el dinero (§5.5).
@@ -438,7 +441,9 @@ se trunca, rompe el JSON, y perdés un turno de cinco.
 
 Mitigaciones, las tres juntas:
 
-- **Cap duro de 200 líneas / 8 KB por spec**, validado por la herramienta.
+- **Cap duro de 400 líneas / 12 KB por spec**, validado por la herramienta. Los
+  valores originales (200/8 KB) estaban mal calibrados y se comieron una corrida
+  entera: el agente convergió 312 → 208 líneas sin llegar a entrar.
 - **Un archivo por módulo**, no uno por AC.
 - El harness de §3.6 mantiene los specs cortos: sin él, cada archivo repetiría
   40 líneas de setup.
@@ -519,7 +524,15 @@ Entre la salida del agente y GitHub va un validador, igual que en
 **Aborta el job:**
 
 - Archivos modificados fuera de `back/test/*.e2e-spec.ts`
-- Un test marcado `suspected_bug` fue reescrito o eliminado (§4, regla 2)
+- Un test marcado `suspected_bug` fue reescrito o eliminado, **o le cambió el
+  cuerpo** (§4, regla 2). Se compara una huella del bloque, no solo el nombre:
+  conservar el `it.failing(...)` y vaciarlo era la misma maniobra que borrarlo
+- **Un AC que falló en alguna corrida terminó en verde sin verificar el status
+  que pide el criterio** (§4, prohibición 1). Ver abajo
+- El agente no produjo ningún spec
+- **El spec entregado nunca pasó por el oráculo**: la corrida cortó justo
+  después de un `write_spec_file`. La cobertura mide nombres de `it()`, no
+  resultados, así que publicarlo sería informar un número sin respaldo
 - La suite no compila (`tsc --noEmit` sobre los tests)
 - JSON de salida con forma inválida
 - El repo destino no es `sportmatch-sandbox` (§0)
@@ -530,6 +543,25 @@ Entre la salida del agente y GitHub va un validador, igual que en
 - `suspectedBugs` sin evidencia completa → se cae del reporte, se loguea
 - AC declarado como cubierto sin un `it()` que lo referencie → se marca como no
   cubierto
+- AC con un `it()` que no verifica ninguno de los status que nombra el criterio
+  → no cubierto, con el motivo en el resumen
+
+### ⚠️ La prohibición 1 necesitaba un mecanismo, no una frase
+
+§4 dice que las tres reglas van "en el prompt **y también** en el validador".
+La 2 y la 3 estaban implementadas; **la 1 no**, y el prompt la enuncia con el
+ejemplo textual "cambiar un 400 por un 200". En SPO-168 el modelo lo leyó y lo
+hizo igual: bajó un `.expect(400)` a `.expect(201)` y le cambió el nombre al
+test para que describiera al código en vez de al criterio. La regla 2 no lo
+agarraba —el snapshot solo cubre bloques ya marcados `it.failing`— así que el
+AC se contaba cubierto y la PR habría salido verde.
+
+Dos guardas, y hacen falta las dos:
+
+| Situación | Guarda | Anclaje |
+|---|---|---|
+| El AC falló y después terminó verde | **Aborta** | Que haya fallado antes. Un AC intesteable (el 401 con el guard overrideado) nunca falla y después pasa, así que queda afuera solo |
+| El `it()` nunca verificó lo que pide el AC | Degrada la cobertura | El **texto del AC**, no el primer intento del modelo: el criterio es la fuente de verdad |
 
 ### ⚠️ Cómo se mide la cobertura de AC
 
@@ -591,7 +623,7 @@ Actions es insoportable, y lo vas a necesitar desde la primera hora.
 | 0a | **Port** | `sportmatch@dev` → sandbox: `back/`, `docker-compose.yml`, configs de raíz (§3.0) | Sí |
 | 0b | **Harness** | `jest-e2e.json` + `setup-e2e.ts` con `overrideGuard` + `fixtures.ts`. Un spec de ejemplo escrito a mano que pase (§3.6) | Sí |
 | 0c | **Verificar Jest ≥ 28** | `it.failing` tiene que existir (§4) | Sí |
-| 1 | Herramientas | `tools.py` + tests: path traversal, cap de 200 líneas, extensión `.e2e-spec.ts` | Sí |
+| 1 | Herramientas | `tools.py` + tests: path traversal, cap de líneas, extensión `.e2e-spec.ts` | Sí |
 | 2 | Stack en CI | `setup-stack.sh`: Postgres + migrate + healthcheck, sin build de imagen | Sí |
 | 3 | Modelos | `models.py`: cadena, avance por 429/402/503, modelo por iteración (§5.5) | Sí |
 | 4 | Precarga | `prefetch-context.py` + mapa RF → módulo. Sin esto el loop de 5 turnos no cierra | Sí |
@@ -642,7 +674,7 @@ aceptación del piloto.
 | El agente debilita asserts para llegar a verde | §4 + validador §8 + snapshot del bloque marcado |
 | **Falso `suspected_bug` por estado sucio de la base** | §3.6: truncado en `beforeEach`, en un harness que el agente no puede tocar |
 | El agente reescribe el archivo y borra un `suspected_bug` | §4 regla 2: snapshot verbatim, el validador aborta |
-| Salida truncada por `max_tokens` | §5.6: cap de 200 líneas, un archivo por módulo, `max_tokens` explícito |
+| Salida truncada por `max_tokens` | §5.6: cap de 400 líneas / 12 KB, un archivo por módulo, `max_tokens` explícito |
 | Loop infinito / cuota quemada | §5.3: cuatro techos independientes |
 | Se agota el tier free de OpenRouter | §5.5: cadena de 3 + `openrouter/free` |
 | Cambio de modelo a mitad del loop altera la conducta | §5.5: sticky + modelo registrado por iteración |
@@ -692,8 +724,54 @@ borrado), y la precarga contra el sandbox real — 4 AC detectados, 21k caracter
 Verificado con el stack real: **7/7** tests e2e verdes, **dos corridas seguidas
 sobre la misma base** — la garantía anti-falso-positivo de §3.6.
 
-**Falta:** la primera corrida del loop contra un modelo real. Necesita
-`LLM_API_KEY` de OpenRouter cargada como secret en el sandbox.
+---
+
+## 14 bis. Lo que enseñaron las primeras corridas (2026-09-03)
+
+Diez corridas, entre CI y local. La suite de tests sin tokens pasó de 13 a 52.
+
+**El primer hallazgo real.** Sobre **SPO-182**, el agente cerró con
+`outcome=finished` en 5 iteraciones, suite verde, 5 `it.failing` y un
+`suspected_bug` con evidencia:
+
+> el repository no incluye la lista de participantes en `findById` y el service
+> no la aplana
+
+Verificado a mano: `PARTIDO_INCLUDE` solo trae `organizador` y `_count`. **El
+ticket figura `Done` y la feature no está implementada.** Cero falsos positivos.
+
+**Lo que costó llegar ahí**, en orden de cuánto enseñó:
+
+| Defecto | Cómo se manifestaba |
+|---|---|
+| La prohibición 1 de §4 no tenía mecanismo | El agente aflojó un assert y la PR habría salido verde certificando el AC |
+| El oráculo era más débil que la puerta | Jest en verde, `tsc` en rojo: 3 corridas muertas por errores que al agente nunca se le mostraron |
+| El último turno se iba en un `write` | El spec entregado nunca se corría. En SPO-182 descartó 6 `it.failing` legítimos |
+| `search` nunca funcionó en CI | Los runners no traen ripgrep. El agente reintentaba idéntico y moría por bucle |
+| La cadena no validaba la forma de la respuesta | Un `{}` pasaba como JSON válido: se quemaban turnos con `action: ''` y nunca se avanzaba de modelo |
+| Un ticket inexistente producía cobertura inventada | Con `criteria: []` el modelo numeraba sus propios AC y el resumen informaba 21/21 |
+| Un filtro sin coincidencias daba verde | `Tests: 0 total` con exit 0 llegaba como "TODOS LOS TESTS PASARON" |
+
+**Dos correcciones al plan**, ambas con datos:
+
+- **El techo de 5 iteraciones era bajo, pero no era la causa.** Subirlo a 7 no
+  arregló nada por sí solo: el agente usó los turnos extra para repetir el mismo
+  ciclo. Lo que destrabó fue clasificar (§4) en el momento de la decisión.
+- **La política de §4 en el SYSTEM no alcanza.** Cuando el modelo la necesita
+  quedó miles de tokens atrás y gana la inercia de arreglar el test. Se le pega
+  a la observación a partir de la segunda corrida en rojo, y recién ahí empezó a
+  clasificar.
+
+**Sobre la cadena (§5.5).** Reordenada con datos: `nemotron` primero, que fue el
+único que produjo specs válidos en las primeras corridas. Bajo tres corridas
+concurrentes el tier free se agota **por modelo, no por cuenta**: `nemotron` y
+`glm-5.2` dieron `free-models-per-day` y `minimax` siguió andando y llevó
+corridas enteras. La cadena se ganó el sueldo. `openrouter/free` ruteó a
+`minimax-m2.7` y quedó registrado el modelo real, no la string del router.
+
+**Falta:** una entrega completa en CI. En local el pipeline cierra; en CI la
+última corrida murió en el compile, que es justo lo que arregla la alineación
+del oráculo.
 
 ## 15. Lo que queda por confirmar
 
@@ -704,9 +782,15 @@ Nada bloquea arrancar la fase 0:
    lista RF-05/RF-06 como si existieran. Hoy le estaríamos dando datos falsos al
    modelo. Corregirlo **en el sandbox** antes del piloto. Irónicamente, es
    exactamente el trabajo del `context-curator`, que ya está instalado ahí.
-2. **¿Los AC de los tickets vienen numerados?** La convención `[AC-n]` de §8
-   asume que los AC son una lista. Si vienen en prosa, hay que numerarlos durante
-   la precarga, y eso mete ambigüedad justo en la métrica principal de §11.
+2. ~~**¿Los AC de los tickets vienen numerados?**~~ **Resuelto (2026-09-03).**
+   Vienen como lista `- [ ]` bajo `**Criterios de aceptación**`, y la precarga
+   los detecta: 12 AC en SPO-168 y SPO-182, 9 en SPO-171. Pero apareció el caso
+   que el plan no preveía: **un ticket que no existe**. Las dos primeras
+   corridas usaron `SPM-42`, el identifier de ejemplo de este documento — el
+   prefijo real del workspace es `SPO`. Con `criteria: []` el modelo numeró sus
+   propios casos y el resumen informó "21/21 AC cubiertos" sobre criterios que
+   no existían. Que la lista venga vacía no puede seguir produciendo una
+   cobertura del 100%.
 3. **`prisma/seed.ts` ya existe en el port.** Decidir si el harness lo usa o si
    `fixtures.ts` crea todo por su cuenta. Recomendación: fixtures propios, para
    que un spec se entienda sin ir a leer el seed.
