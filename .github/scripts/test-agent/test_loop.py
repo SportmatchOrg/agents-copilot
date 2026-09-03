@@ -56,5 +56,30 @@ class SpecVerifiedTest(unittest.TestCase):
         self.assertTrue(run_agent._spec_verified([w(), t(True), w(ok=False)]))
 
 
+class ObservationNudgeTest(unittest.TestCase):
+    """El recordatorio de §4 solo aparece cuando hace falta.
+
+    En cada turno, no: sumar 1.5 KB a cada observación empuja el contexto y
+    convierte el aviso en ruido que el modelo aprende a saltear.
+    """
+
+    def obs(self, ok, nudge):
+        r = run_agent.tools_mod.ToolResult(ok, "salida")
+        return run_agent.observation("run_tests", r, nudge)
+
+    def test_lleva_la_clasificacion_cuando_se_la_pasan(self):
+        self.assertIn("CLASIFICÁ ANTES DE REESCRIBIR",
+                      self.obs(False, run_agent.CLASIFICA))
+
+    def test_sin_nudge_la_observacion_queda_limpia(self):
+        out = self.obs(False, "")
+        self.assertNotIn("CLASIFICÁ", out)
+        self.assertTrue(out.endswith("salida"))
+
+    def test_nombra_las_tres_categorias_de_seccion_4(self):
+        for cat in ("test_error", "suspected_bug", "blocked", "it.failing"):
+            self.assertIn(cat, run_agent.CLASIFICA)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

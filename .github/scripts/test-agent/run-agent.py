@@ -39,9 +39,36 @@ MAX_FREE_RETRIES = 2
 READ_ACTIONS = {"read_file", "list_dir", "search"}
 
 
-def observation(name: str, result: tools_mod.ToolResult) -> str:
+# La política de §4 está en el SYSTEM, pero cuando el modelo la necesita quedó
+# 6000 tokens atrás y gana la inercia de "arreglar el test". En SPO-168 el agente
+# dedujo solo que al endpoint le faltaba el `@Body()` con DTO — un suspected_bug
+# de manual — y siguió reescribiendo igual. Cinco corridas sin que la vía se
+# active. Esto la pone delante de él en el momento exacto de la decisión.
+CLASIFICA = """
+
+─── SEGUNDA CORRIDA EN ROJO: CLASIFICÁ ANTES DE REESCRIBIR ───
+
+Ya reescribiste el spec y sigue fallando. Antes de tocar otra línea, clasificá
+cada test que falla:
+
+  test_error     el test está mal (payload, fixture, ruta) → corregilo
+  suspected_bug  el test es correcto y el CÓDIGO no cumple el AC
+                 → marcalo `it.failing(...)`, no lo toques más, y reportalo en
+                   `suspectedBugs` con ac / request / expected / actual
+  blocked        el endpoint no existe o el AC es ambiguo → reportalo
+
+Si ya viste que el código no hace lo que pide el AC — un DTO que falta, una
+validación que no está, un status que no coincide — eso es `suspected_bug` y NO
+un test para arreglar. Reescribirlo para que pase sería debilitar el assert, que
+está prohibido. Un suspected_bug legítimo vale más que diez tests verdes.
+
+Un `it.failing` PASA cuando falla: la suite queda en verde y el bug queda en el
+reporte. Es la forma de cerrar, no un fracaso."""
+
+
+def observation(name: str, result: tools_mod.ToolResult, nudge: str = "") -> str:
     status = "OK" if result.ok else "ERROR"
-    return f"[resultado de {name} — {status}]\n{result.output}"
+    return f"[resultado de {name} — {status}]\n{result.output}{nudge}"
 
 
 def main() -> int:
@@ -71,6 +98,7 @@ def main() -> int:
 
     iteration = 0
     free_retries = 0
+    failed_runs = 0
     while iteration < MAX_ITERATIONS:
         iteration += 1
         elapsed = time.monotonic() - started
@@ -158,7 +186,12 @@ def main() -> int:
 
         messages.append({"role": "assistant",
                          "content": json.dumps(reply, ensure_ascii=False)})
-        messages.append(agent_prompt.user_turn(observation(action, result)))
+        if action == "run_tests" and not result.ok:
+            failed_runs += 1
+        nudge = CLASIFICA if (action == "run_tests" and not result.ok
+                              and failed_runs >= 2) else ""
+        messages.append(agent_prompt.user_turn(
+            observation(action, result, nudge)))
     else:
         outcome = "budget"
         print(f"[loop] se agotaron las {MAX_ITERATIONS} iteraciones", flush=True)
