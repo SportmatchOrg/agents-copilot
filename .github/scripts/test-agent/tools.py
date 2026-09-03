@@ -255,6 +255,27 @@ class Toolbox:
                 "del archivo. Corré sin `pattern` para la suite completa.\n\n"
                 + combined.strip()))
 
+        # El agente tiene que ver la MISMA vara que lo juzga. El validador corre
+        # `tsc --noEmit` y aborta si no compila, pero ts-jest es más permisivo:
+        # las corridas 5, 6 y la de SPO-182 en CI pasaron los tests y murieron
+        # en el compile por algo que al agente nunca se le mostró — un
+        # `possibly null`, un `prisma.$use` que ya no existe en Prisma 7.
+        #
+        # Solo si Jest pasó: con tests en rojo el agente ya tiene qué arreglar,
+        # y tsc cuesta ~20s que no vale la pena pagar ahí.
+        if proc.returncode == 0:
+            tsc = subprocess.run(
+                ["npx", "tsc", "--noEmit", "-p", "tsconfig.json"],
+                cwd=self.service, capture_output=True, text=True,
+                timeout=TEST_TIMEOUT)
+            if tsc.returncode != 0:
+                errores = (tsc.stdout + tsc.stderr).strip()[-2000:]
+                return ToolResult(False, (
+                    "los tests pasan PERO el spec no compila, y el validador "
+                    "aborta la entrega si no compila. Arreglá esto:\n\n"
+                    + errores), {"exit_code": 0, "failed_acs": failed_acs,
+                                 "tsc": False})
+
         verdict = "TODOS LOS TESTS PASARON" if proc.returncode == 0 else "HAY TESTS FALLANDO"
         return ToolResult(
             proc.returncode == 0,

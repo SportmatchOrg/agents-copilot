@@ -128,6 +128,51 @@ class ToolboxTest(unittest.TestCase):
         self.assertEqual(self.box.test_runs, 1)
 
 
+class OraculoCompilaTest(unittest.TestCase):
+    """El agente tiene que ver la misma vara que lo juzga: ts-jest es más
+    permisivo que `tsc --noEmit`, y tres corridas pasaron los tests y murieron
+    en el compile del validador por algo que nunca se les mostró."""
+
+    class Fake:
+        def __init__(self, rc, out=""):
+            self.returncode, self.stdout, self.stderr = rc, out, ""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        (Path(self.tmp.name) / "back").mkdir()
+        self.box = tools.Toolbox(Path(self.tmp.name))
+        self.real = tools.subprocess.run
+        self.cmds = []
+
+    def tearDown(self):
+        tools.subprocess.run = self.real
+        self.tmp.cleanup()
+
+    def fake(self, jest_rc, tsc_rc, tsc_out="x.ts(1,1): error TS2339: nope"):
+        def _run(cmd, **kw):
+            self.cmds.append(cmd[0])
+            if cmd[0] == "npx":
+                return self.Fake(tsc_rc, tsc_out)
+            return self.Fake(jest_rc, "Tests: 3 passed, 3 total")
+        tools.subprocess.run = _run
+
+    def test_jest_verde_y_tsc_rojo_no_es_verde(self):
+        self.fake(jest_rc=0, tsc_rc=1)
+        r = self.box.run_tests()
+        self.assertFalse(r.ok)
+        self.assertIn("no compila", r.output)
+        self.assertIn("TS2339", r.output)
+
+    def test_jest_verde_y_tsc_verde_si_es_verde(self):
+        self.fake(jest_rc=0, tsc_rc=0)
+        self.assertTrue(self.box.run_tests().ok)
+
+    def test_con_jest_rojo_no_se_paga_el_tsc(self):
+        self.fake(jest_rc=1, tsc_rc=0)
+        self.assertFalse(self.box.run_tests().ok)
+        self.assertNotIn("npx", self.cmds)
+
+
 class SearchSinRipgrepTest(unittest.TestCase):
     """Los runners de GitHub no traen `rg`: en CI esta herramienta estuvo muerta
     desde el día uno y en SPO-171 mató una corrida por bucle."""
