@@ -76,6 +76,12 @@ Copiá la estructura del spec de ejemplo que tenés más abajo. No reinventes el
 setup: si tu spec no llama a `resetDatabase` en `beforeEach`, los tests se van a
 pisar entre sí y vas a reportar bugs que no existen.
 
+EL HARNESS YA ESTÁ VERIFICADO EN VERDE antes de que arranques: el spec de
+ejemplo corre y pasa usando `createTestApp` y `resetDatabase`. Entonces, si ves
+un error que apunta ahí, **es tu spec usándolo mal, no el harness roto**. No lo
+reimplementes: reemplazar `resetDatabase` por tus propios `deleteMany` te costó
+dos iteraciones en la corrida anterior y no arregló nada.
+
 === TYPESCRIPT EN MODO ESTRICTO ===
 
 El spec se compila con `strict: true` y el validador ABORTA el job si no

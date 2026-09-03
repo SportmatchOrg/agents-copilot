@@ -128,6 +128,22 @@ class ToolboxTest(unittest.TestCase):
         self.assertEqual(self.box.test_runs, 1)
 
 
+class NoTestsRegexTest(unittest.TestCase):
+    """Un verde de cero tests es un oráculo mintiendo (SPO-168)."""
+
+    def test_detecta_filtro_que_no_matcheo_nada(self):
+        self.assertTrue(tools.NO_TESTS_RE.search(
+            "Test Suites: 1 passed, 1 total\nTests:       0 total\n"))
+
+    def test_detecta_ningun_suite(self):
+        self.assertTrue(tools.NO_TESTS_RE.search(
+            "No tests found, exiting with code 0"))
+
+    def test_no_dispara_con_una_corrida_real(self):
+        self.assertIsNone(tools.NO_TESTS_RE.search(
+            "Test Suites: 2 passed, 2 total\nTests:       11 passed, 11 total\n"))
+
+
 class SpecRegexTest(unittest.TestCase):
     def test_solo_matchea_specs_e2e(self):
         self.assertTrue(tools.SPEC_RE.match("back/test/partidos.e2e-spec.ts"))

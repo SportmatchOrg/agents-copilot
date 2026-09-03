@@ -26,7 +26,12 @@ import tools as tools_mod  # noqa: E402
 from llm_client import LLMError  # noqa: E402
 
 MAX_ITERATIONS = agent_prompt.MAX_ITERATIONS
-MAX_TEST_RUNS = 3
+# Con MAX_ITERATIONS=7 el camino ideal es write/test/fix/test/fix/test/finish:
+# tres corridas justas. Quedaba en 3 desde que el techo era 5, así que la
+# corrida de SPO-168 llegó a la iteración 7 queriendo verificar —justo lo que
+# le pedimos— y se la rechazamos. Una de slack, porque una corrida se puede
+# perder en un pattern que no matchea nada.
+MAX_TEST_RUNS = 4
 MAX_WALL_SECONDS = int(600)
 
 # Un rechazo por VALIDACIÓN DE ENTRADA (archivo muy grande, ruta no permitida)

@@ -39,6 +39,43 @@ AC_RE = re.compile(r"^\s*(?:it|test)(?:\.failing)?\s*\(\s*['\"`]\s*\[(AC-\d+)\]"
 FAILING_RE = re.compile(r"^\s*(?:it|test)\.failing\s*\(\s*(['\"`])(.+?)\1", re.M)
 BUG_FIELDS = ("ac", "request", "expected", "actual")
 
+# Códigos HTTP que nombra el texto de un AC ("devuelve **400**", "→ 409").
+STATUS_IN_AC_RE = re.compile(r"\b([1-5]\d\d)\b")
+# Códigos que un test verifica de verdad: supertest o assert sobre .status.
+STATUS_IN_TEST_RE = re.compile(
+    r"\.expect\(\s*(\d{3})\s*\)|\.status\s*\)?\s*\.toBe\(\s*(\d{3})\s*\)")
+
+
+def test_block(content: str, ac_id: str) -> str:
+    """El cuerpo del `it('[AC-n] ...')`, hasta el próximo it/test."""
+    start = re.search(rf"^\s*(?:it|test)(?:\.failing)?\s*\(\s*['\"`]\s*\[{ac_id}\]",
+                      content, re.M)
+    if not start:
+        return ""
+    rest = content[start.end():]
+    nxt = re.search(r"^\s*(?:it|test)(?:\.failing)?\s*\(", rest, re.M)
+    return rest[:nxt.start()] if nxt else rest
+
+
+def asserts_lo_que_pide(ac_text: str, block: str) -> bool:
+    """¿El test verifica alguno de los status que nombra el criterio?
+
+    Nace de SPO-168, donde el agente bajó un `.expect(400)` a `.expect(201)` y
+    le cambió el nombre al test para que describiera lo que hace el código en
+    vez de lo que pide el AC. La regla 2 de §4 no lo agarra: el snapshot solo
+    protege bloques ya marcados `it.failing`, y este nunca lo estuvo.
+
+    Se ancla al TEXTO DEL AC, no a lo que el modelo escribió antes: el criterio
+    es la fuente de verdad, su primer intento no.
+
+    Si el AC no nombra ningún status, no hay nada que cruzar y se deja pasar.
+    """
+    quiere = {c for c in STATUS_IN_AC_RE.findall(ac_text) if 200 <= int(c) < 600}
+    if not quiere:
+        return True
+    verifica = {a or b for a, b in STATUS_IN_TEST_RE.findall(block)}
+    return bool(quiere & verifica)
+
 
 def fail(message: str) -> None:
     print(f"::error title=Validación del test agent::{message}")
@@ -151,16 +188,28 @@ def main() -> int:
         covered |= set(AC_RE.findall(
             (repo / rel).read_text(encoding="utf-8", errors="replace")))
 
+    all_specs = "\n".join(
+        (repo / rel).read_text(encoding="utf-8", errors="replace") for rel in specs)
+
     criteria = output.get("criteria") or []
     total_ac = len(criteria) or len(covered)
     coverage = []
+    debilitados = []
     for i in range(1, (len(criteria) or len(covered)) + 1):
         ac_id = f"AC-{i}"
-        coverage.append({
-            "ac": ac_id,
-            "text": criteria[i - 1] if i <= len(criteria) else "",
-            "covered": ac_id in covered,
-        })
+        text = criteria[i - 1] if i <= len(criteria) else ""
+        hit = ac_id in covered
+        motivo = ""
+        if hit and text and not asserts_lo_que_pide(text, test_block(all_specs, ac_id)):
+            hit, motivo = False, "el test no verifica el status que pide el criterio"
+            debilitados.append(ac_id)
+        coverage.append({"ac": ac_id, "text": text, "covered": hit,
+                         **({"motivo": motivo} if motivo else {})})
+    if debilitados:
+        print(f"⚠️  {', '.join(debilitados)}: hay un it() con ese identificador "
+              f"pero no verifica el status que pide el AC; no se cuentan como "
+              f"cubiertos (§4: si el código no cumple, es suspected_bug, no un "
+              f"assert para aflojar)")
     n_covered = sum(1 for c in coverage if c["covered"])
 
     declared = {c.get("ac") for c in (output.get("acCoverage") or [])

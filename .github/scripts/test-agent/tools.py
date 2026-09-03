@@ -57,6 +57,9 @@ PROTECTED = {f"{SERVICE_ROOT}/test/partidos.example.e2e-spec.ts"}
 
 EXCLUDE_DIRS = {"node_modules", "dist", ".git", ".next", "coverage", "generated"}
 
+# "Tests: 0 total" (el filtro descartó todo) y "No tests found" (ningún suite).
+NO_TESTS_RE = re.compile(r"Tests:\s+0 total|No tests found", re.I)
+
 
 @dataclass
 class ToolResult:
@@ -184,6 +187,18 @@ class Toolbox:
         # La cola de Jest es donde están los fallos y el resumen; el head es ruido.
         if len(combined) > MAX_TEST_OUTPUT:
             combined = "[...recortado...]\n" + combined[-MAX_TEST_OUTPUT:]
+        # Jest sale 0 cuando el filtro no matchea NADA, y eso llegaba al agente
+        # como "TODOS LOS TESTS PASARON". Es un oráculo mintiendo: en SPO-168 se
+        # comió una de las corridas disponibles con un verde de cero tests.
+        # `pattern` filtra por NOMBRE de test (-t), no por nombre de archivo.
+        if proc.returncode == 0 and NO_TESTS_RE.search(combined):
+            return ToolResult(False, (
+                "no se ejecutó NINGÚN test: el filtro no matcheó nada, así que "
+                "este verde no significa nada. `pattern` filtra por el NOMBRE "
+                "del test (lo que va dentro de `it('...')`), no por el nombre "
+                "del archivo. Corré sin `pattern` para la suite completa.\n\n"
+                + combined.strip()))
+
         verdict = "TODOS LOS TESTS PASARON" if proc.returncode == 0 else "HAY TESTS FALLANDO"
         return ToolResult(
             proc.returncode == 0,
