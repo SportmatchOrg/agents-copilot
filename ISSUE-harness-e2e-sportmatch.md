@@ -61,9 +61,15 @@ Tres decisiones del harness que conviene que alguien de back valide:
 2. **`stubs/firebase-admin-auth.ts` tira error si alguien lo llama.** `jose` es
    ESM puro y rompe el runtime CJS de Jest. Que explote es deliberado: un test
    que autentique de verdad sería un falso positivo silencioso.
-3. **`resetDatabase()` hace `TRUNCATE ... RESTART IDENTITY CASCADE`** en cada
-   `beforeEach`. Es lo que evita que un spec pase la primera corrida y falle la
-   segunda por estado sucio.
+3. **`resetDatabase()` hace `TRUNCATE ... RESTART IDENTITY CASCADE`** sobre
+   `participantes`, `partidos`, `users` y `deportes` en cada `beforeEach`. No
+   toca `_prisma_migrations`, así que el esquema no se recrea.
+
+   Tiene una guarda: **aborta si `DATABASE_URL` no apunta a una base local**
+   (`localhost`, `127.0.0.1`, `db`, `postgres`). Sin eso, un dev con la URL de
+   Neon exportada corría `npm run test:e2e` y se llevaba puesta la base real —
+   `env-e2e.ts` usa `??=`, o sea que respeta cualquier `DATABASE_URL` ya
+   seteada. Un TRUNCATE no se deshace.
 
 ## Verificación
 

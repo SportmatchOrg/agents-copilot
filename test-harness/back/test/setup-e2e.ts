@@ -91,8 +91,23 @@ export async function createTestApp(): Promise<TestContext> {
   return { app, prisma: app.get(PrismaService) };
 }
 
+// Solo se trunca contra una base local o efímera. `env-e2e.ts` pone el default
+// con `??=`, o sea que RESPETA una DATABASE_URL ya exportada: sin esta guarda,
+// un dev con la URL de Neon en el entorno corre `npm run test:e2e` y se lleva
+// puesta la base real. Un TRUNCATE no se deshace.
+const HOSTS_PERMITIDOS = /@(localhost|127\.0\.0\.1|\[::1\]|db|postgres)[:/]/;
+
 /** Deja la base vacía y el usuario autenticado en el default. */
 export async function resetDatabase(prisma: PrismaService): Promise<void> {
+  const url = process.env.DATABASE_URL ?? '';
+  if (!HOSTS_PERMITIDOS.test(url)) {
+    throw new Error(
+      `resetDatabase() aborta: DATABASE_URL no apunta a una base local.\n` +
+        `  host recibido: ${url.replace(/\/\/[^@]*@/, '//***@') || '(vacía)'}\n` +
+        `  Esto trunca ${TABLES.join(', ')}. Corré los e2e contra el Postgres ` +
+        `del docker-compose, no contra Neon ni staging.`,
+    );
+  }
   resetAuthUser();
   await prisma.$executeRawUnsafe(
     `TRUNCATE TABLE ${TABLES.map((t) => `"${t}"`).join(', ')} RESTART IDENTITY CASCADE`,
