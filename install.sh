@@ -3,8 +3,15 @@
 # install.sh — Instala el paquete de agentes de IA de SportMatch en un repo.
 #
 # Copia AGENTS.md a la raíz del repo destino y el contenido de github/ a
-# .github/ (resolviendo el renombrado github -> .github). Deja llm.sh
-# ejecutable e imprime los próximos pasos (secrets, commit).
+# .github/ (resolviendo el renombrado github -> .github) e imprime los
+# próximos pasos (secrets, commit).
+#
+# Los workflows del paquete (github/workflows/*.yml) son wrappers finos: la
+# lógica, los prompts y los scripts viven en SportmatchOrg/agents-copilot y
+# se resuelven ahí en cada corrida vía `uses: .../*-reusable.yml@main`. Por
+# eso NO hace falta copiar scripts al repo destino, y volver a correr este
+# script sobre un repo ya instalado reemplaza cualquier workflow viejo
+# (versión completa, pre-centralización) por su wrapper actual.
 #
 # Uso:  bash install.sh <ruta-al-repo-destino>
 # Ej.:  bash install.sh ../sportmatch-onboarding
@@ -33,8 +40,7 @@ fi
 # --- 2. github/ -> .github/ (el renombrado clave) --------------------------
 mkdir -p "$TARGET/.github/chatmodes" \
          "$TARGET/.github/skills/pr-review" \
-         "$TARGET/.github/workflows" \
-         "$TARGET/.github/scripts"
+         "$TARGET/.github/workflows"
 
 cp "$SCRIPT_DIR/github/copilot-instructions.md"     "$TARGET/.github/"
 cp "$SCRIPT_DIR/github/chatmodes/"*.chatmode.md     "$TARGET/.github/chatmodes/"
@@ -44,26 +50,24 @@ cp "$SCRIPT_DIR/github/skills/pr-review/SKILL.md"   "$TARGET/.github/skills/pr-r
 # bajo .github/skills/ del repo de desarrollo, la review nativa de Copilot
 # podría levantarlo y empezar a publicar comentarios QA sin aprobación humana,
 # que es exactamente lo que este diseño evita.
+# Wrappers: reemplazan sin preguntar cualquier .yml previo con el mismo
+# nombre (incluida una versión completa pre-centralización).
 cp "$SCRIPT_DIR/github/workflows/"*.yml             "$TARGET/.github/workflows/"
-cp "$SCRIPT_DIR/github/scripts/llm.sh"              "$TARGET/.github/scripts/"
-cp "$SCRIPT_DIR/github/scripts/linear.sh"           "$TARGET/.github/scripts/"
-chmod +x "$TARGET/.github/scripts/llm.sh" "$TARGET/.github/scripts/linear.sh"
 
 echo "✅ Archivos instalados."
 echo ""
 echo "Próximos pasos en el repo destino:"
 echo "  1. Cargá los secrets (una vez, en el repo):"
 echo "       gh secret set LLM_API_KEY              --repo <owner/repo>"
-echo "       gh secret set QA_GITHUB_TOKEN         --repo <owner/repo>   # PAT del QA, ver abajo"
 echo "       gh secret set LINEAR_API_KEY           --repo <owner/repo>"
 echo "       gh secret set DISCORD_WEBHOOK_QA       --repo <owner/repo>"
 echo "       gh secret set DISCORD_WEBHOOK_PLANNING --repo <owner/repo>"
 echo "       gh secret set DISCORD_WEBHOOK_PROGRESS --repo <owner/repo>"
-echo "     (opcional, para cambiar de proveedor de LLM — ver llm.sh):"
+echo "     (opcional, para cambiar de proveedor de LLM — ver agents-copilot/.github/scripts/llm.sh):"
 echo "       gh variable set LLM_BASE_URL --repo <owner/repo>"
 echo "       gh variable set LLM_MODEL    --repo <owner/repo>"
 echo "     (opcional: habilita que el DoD checker cree un ticket de Linear"
-echo "      cuando un PR no referencia ninguno — ver linear.sh):"
+echo "      cuando un PR no referencia ninguno):"
 echo "       gh variable set LINEAR_TEAM_KEY --repo <owner/repo>   # ej. SPM"
 echo "  2. Commiteá a la rama base (dev/main) para que los workflows se activen:"
 echo "       git add AGENTS.md .github && git commit -m 'chore: add AI agents' && git push"
