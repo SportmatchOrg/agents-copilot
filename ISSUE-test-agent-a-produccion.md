@@ -18,17 +18,30 @@ Es un issue aparte porque lo hace el equipo de back:
 Sin eso el agente no tiene contra qué correr: `sportmatch` no tiene
 `back/test/` y su `test:e2e` apunta a un config inexistente.
 
-## 2. Dos trámites de una línea
+## 2. Lo que hay que hacer del lado nuestro
 
-- Agregar `SportmatchOrg/sportmatch` a `ALLOWED_REPOS` en
-  `validate-output.py`. Ese commit **es** la decisión explícita de apuntar a
-  producción: hoy el validador aborta si el destino no es el sandbox.
-- Cargar `AGENTS_REPO_TOKEN` en `sportmatch` (PAT con `Contents: Read` sobre
-  `agents-copilot`, que es privado).
+**a) El wrapper en `sportmatch`.** `install.sh` instala 8 workflows y
+`test-agent.yml` NO está entre ellos, a propósito: no queremos que el hotfix
+lo instale antes de que exista el harness. Se agrega a mano, copiando el del
+sandbox y cambiando dos valores:
 
-No hace falta PAT para escribir: `sportmatch` ya tiene
-`default_workflow_permissions: write` y `can_approve_pull_request_reviews:
-true`, así que va con `GITHUB_TOKEN` y la PR queda con autoría de bot.
+```yaml
+      target_repo: SportmatchOrg/sportmatch
+      agents_ref: v1        # un tag, no @main — ver abajo
+```
+
+**b) La allowlist.** Agregar `SportmatchOrg/sportmatch` a `ALLOWED_REPOS` en
+`.github/scripts/test-agent/validate-output.py`. Hoy el validador aborta si el
+destino no es el sandbox, y ese guardarraíl es deliberado: **ese commit es la
+decisión explícita de apuntar a producción**, no un descuido de configuración.
+
+Hacerlo DESPUÉS del harness. Si la allowlist se abre antes, alguien puede
+disparar el agente contra un repo donde `test:e2e` no existe.
+
+**Lo que NO hace falta:** `AGENTS_REPO_TOKEN`. `agents-copilot` es público, así
+que el checkout anda con el `GITHUB_TOKEN`. Y tampoco hace falta un PAT para
+escribir: `sportmatch` tiene `default_workflow_permissions: write` y
+`can_approve_pull_request_reviews: true`, así que la PR sale con autoría de bot.
 
 ## 3. Una decisión de proceso, no técnica
 

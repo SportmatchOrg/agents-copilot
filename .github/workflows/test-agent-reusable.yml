@@ -56,7 +56,10 @@ on:
       LINEAR_API_KEY:
         required: false
       AGENTS_REPO_TOKEN:
-        description: PAT con Contents:Read sobre agents-copilot (repo privado).
+        description: >
+          Innecesario mientras agents-copilot sea PÚBLICO: el checkout anda con
+          el GITHUB_TOKEN del repo llamador. Queda por si alguna vez se pasa a
+          privado, y ahí sí hace falta un PAT con Contents:Read.
         required: false
 
 permissions:
