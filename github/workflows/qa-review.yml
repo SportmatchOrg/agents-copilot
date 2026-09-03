@@ -11,7 +11,7 @@ name: QA Review
 # QA, que edita, borra falsos positivos, agrega lo suyo y recién ahí elige
 # Approve / Comment / Request changes y hace Submit.
 #
-# Secrets necesarios en ESTE repo (secrets: inherit los pasa al workflow central):
+# Secrets necesarios en ESTE repo (pasados explícitos abajo, sin `secrets: inherit`):
 #   QA_GITHUB_TOKEN  Fine-grained PAT del QA. Una pending review solo la ve quien
 #                    la creó, así que tiene que ser el token de una persona.
 #                    Permisos: en este repo -> Contents: Read,
@@ -47,4 +47,8 @@ jobs:
     # Al marcarla "Ready for review" se dispara `ready_for_review` y corre.
     if: github.event.pull_request.draft == false
     uses: SportmatchOrg/agents-copilot/.github/workflows/qa-review-reusable.yml@main
-    secrets: inherit
+    secrets:
+      QA_GITHUB_TOKEN: ${{ secrets.QA_GITHUB_TOKEN }}
+      LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
+      QA_LLM_API_KEY: ${{ secrets.QA_LLM_API_KEY }}
+      LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}

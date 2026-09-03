@@ -1,0 +1,132 @@
+name: Sprint Health diario — reusable
+
+# Semáforo diario del sprint, posteado en Discord.
+# Usa un LLM OpenAI-compatible (default Gemini free tier) vía .github/scripts/llm.sh.
+# Corre lun-vie 09:00 ART (12:00 UTC). También disparable a mano.
+
+#
+# Toda la lógica vive acá. El repo llamador solo necesita un wrapper de ~15
+# líneas con el `on:` que quiera (ver github/workflows/sprint-health.yml).
+
+on:
+  workflow_call:
+    inputs:
+      agents_ref:
+        description: Rama o tag de agents-copilot con la lógica del agente.
+        type: string
+        default: main
+    secrets:
+      LLM_API_KEY:
+        description: API key del proveedor LLM (OpenAI-compatible; default Gemini).
+        required: false
+      LINEAR_API_KEY:
+        description: Opcional. Sin ella se omite la integración con Linear.
+        required: false
+      DISCORD_WEBHOOK:
+        description: Webhook de Discord donde postear el resultado.
+        required: false
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  sprint-health:
+    runs-on: ubuntu-latest
+
+    # A nivel job: en un reusable, un `concurrency:` de workflow hace que
+    # GitHub rechace el archivo entero.
+    concurrency:
+      group: sprint-health-${{ github.repository }}
+      cancel-in-progress: true
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Checkout de agents-copilot (lógica del agente)
+        uses: actions/checkout@v4
+        with:
+          repository: SportmatchOrg/agents-copilot
+          ref: ${{ inputs.agents_ref }}
+          path: _agents-copilot
+          persist-credentials: false
+
+      - name: Traer datos de Linear (ciclo activo)
+        run: |
+          curl -s https://api.linear.app/graphql \
+            -H "Authorization: ${LINEAR_API_KEY}" \
+            -H "Content-Type: application/json" \
+            -d '{"query":"{ issues(filter:{cycle:{isActive:{eq:true}}}) { nodes { identifier title state{name} assignee{name} estimate updatedAt } } }"}' \
+            > linear.json || echo '{"error":"linear no disponible"}' > linear.json
+        env:
+          LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
+
+      - name: Detectar si Linear no devolvió datos (distinto de "todo verde")
+        id: linear_status
+        run: |
+          if jq -e '.errors, .error' linear.json >/dev/null 2>&1; then
+            echo "estado=error_api" >> "$GITHUB_OUTPUT"
+          elif [ "$(jq -r '.data.issues.nodes | length' linear.json 2>/dev/null)" = "0" ]; then
+            echo "estado=sin_ciclo_activo" >> "$GITHUB_OUTPUT"
+          else
+            echo "estado=ok" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Traer PRs abiertos de GitHub
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh pr list --state open --json number,title,createdAt,updatedAt,reviewDecision > prs.json || echo '[]' > prs.json
+
+      - name: Armar el prompt
+        env:
+          LINEAR_ESTADO: ${{ steps.linear_status.outputs.estado }}
+        run: |
+          {
+            echo "Sos el agente Sprint Health de SportMatch. Con los datos de Linear y GitHub de abajo, armá un semáforo del sprint."
+            echo "Criterios de color: WIP >2 por dev = rojo; PRs sin review >48h = amarillo, >72h = rojo; tickets sin movimiento 3+ días = alerta; blockers >=2 = rojo."
+            if [ "$LINEAR_ESTADO" != "ok" ]; then
+              echo "IMPORTANTE: Linear no devolvió tickets del ciclo activo (estado='$LINEAR_ESTADO': 'sin_ciclo_activo' = no hay ciclo/cycle activo configurado en el team, 'error_api' = la API falló). NO reportes esto como 🟢 verde ni infieras WIP/burndown de Linear — el estado de estos indicadores es DESCONOCIDO, no 'sin problemas'. Decilo explícitamente y basá el semáforo solo en los PRs de GitHub."
+            fi
+            echo "Formato de salida (máx 12 líneas, en español), listo para postear en Discord:"
+            echo "🚦 Sprint Health — SportMatch — <fecha> | Estado 🟢/🟡/🔴/⚪(sin datos) | Burndown, WIP, Blockers, PRs esperando review, Sin movimiento, y 'Atención hoy' (máx 2 cosas)."
+            echo "Es una señal, no un diagnóstico: mostrá datos, no acuses a nadie."
+            echo ""
+            echo "=== LINEAR (ciclo activo; estado=$LINEAR_ESTADO) ==="; cat linear.json
+            echo ""
+            echo "=== PRs ABIERTOS ==="; cat prs.json
+          } > prompt.txt
+
+      - name: Generar resumen (LLM OpenAI-compatible, default Gemini)
+        id: ai
+        env:
+          LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
+          LLM_BASE_URL: ${{ vars.LLM_BASE_URL }}
+          LLM_MODEL: ${{ vars.LLM_MODEL }}
+        run: |
+          OUT=$(bash _agents-copilot/github/scripts/llm.sh prompt.txt)
+          {
+            echo 'response<<EOF_LLM'
+            echo "$OUT"
+            echo 'EOF_LLM'
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Postear a Discord
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK }}
+        run: |
+          python3 - <<'PY'
+          import json, os, urllib.request
+          resp = """${{ steps.ai.outputs.response }}"""
+          if resp.startswith("LLM_UNAVAILABLE"):
+              msg = f"⚠️ Sprint Health: LLM no disponible ahora mismo, no se generó el semáforo de hoy. ({resp})"
+          else:
+              msg = resp
+          data = json.dumps({"content": msg[:1900]}).encode()
+          req = urllib.request.Request(os.environ["DISCORD_WEBHOOK_URL"], data=data,
+                                       headers={"Content-Type": "application/json", "User-Agent": "Mozilla/5.0 (compatible; SportMatchBot/1.0)"})
+          urllib.request.urlopen(req)
+          PY
+
+# Los secrets los pasa el wrapper del repo llamador; los `vars.*`
+# (LLM_BASE_URL, LLM_MODEL) se resuelven contra ese repo y su organización.

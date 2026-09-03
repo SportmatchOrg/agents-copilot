@@ -1,96 +1,16 @@
 name: Traductor de PR a negocio
 
-# Al abrir/actualizar un PR, traduce el cambio a lenguaje de negocio
-# (qué historia implementa, riesgo, qué probar) y lo postea como comentario
-# del PR + aviso en Discord. LLM OpenAI-compatible (default Gemini free tier).
-
 on:
   pull_request:
     types: [opened, synchronize, reopened]
     branches: [dev, main]
 
-concurrency:
-  group: pr-business-translator-${{ github.event.pull_request.number }}
-  cancel-in-progress: true
-
-permissions:
-  contents: read
-  pull-requests: write
-
 jobs:
-  translate:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Obtener diff y título del PR
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          PR: ${{ github.event.pull_request.number }}
-        run: |
-          gh pr view "$PR" --json title,body,headRefName > meta.json
-          gh pr diff "$PR" > diff.txt || echo "(sin diff)" > diff.txt
-
-      - name: Armar el prompt
-        run: |
-          {
-            echo "Sos el Traductor de PRs a Negocio de SportMatch. Traducí este PR para alguien que NO lee código (PM/PO). Español, sin jerga."
-            echo "Secciones EXACTAS: 'Qué hace este cambio' (2-3 líneas), 'Historia que implementa' (RF-01..RF-06; si no mapea a ninguno marcá ⚠️ fuera de backlog; decí si cubre todos los AC o parte), 'Riesgo' (bajo/medio/alto + por qué; ojo con auth, datos personales RNF-03 y flujos Must), 'Qué probar antes de aprobar' (checklist en lenguaje de usuario)."
-            echo "Breve, cabe en un comentario."
-            echo ""
-            echo "=== META ==="; cat meta.json
-            echo ""
-            echo "=== DIFF ==="; head -c 60000 diff.txt
-          } > prompt.txt
-
-      - name: Generar traducción (LLM OpenAI-compatible, default Gemini)
-        id: ai
-        env:
-          LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
-          LLM_BASE_URL: ${{ vars.LLM_BASE_URL }}
-          LLM_MODEL: ${{ vars.LLM_MODEL }}
-        run: |
-          OUT=$(bash .github/scripts/llm.sh prompt.txt)
-          {
-            echo 'response<<EOF_LLM'
-            echo "$OUT"
-            echo 'EOF_LLM'
-          } >> "$GITHUB_OUTPUT"
-
-      - name: Comentar el PR
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          PR: ${{ github.event.pull_request.number }}
-          RESPONSE: ${{ steps.ai.outputs.response }}
-        run: |
-          if printf '%s' "$RESPONSE" | grep -q "^LLM_UNAVAILABLE"; then
-            echo "LLM no disponible, no se comenta el PR: $RESPONSE"
-            exit 0
-          fi
-          printf '### 📊 Resumen para negocio (IA)\n\n%s\n\n---\n*Generado automáticamente. La decisión es humana ("Lab4 no codifica").*' "$RESPONSE" > body.md
-          # --edit-last edita el último comentario de este mismo actor (el bot), nunca uno humano.
-          gh pr comment "$PR" --edit-last --create-if-none --body-file body.md
-
-      - name: Avisar por Discord
-        env:
-          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_QA }}
-          RESPONSE: ${{ steps.ai.outputs.response }}
-          PR_URL: ${{ github.event.pull_request.html_url }}
-        run: |
-          python3 - <<'PY'
-          import json, os, urllib.request
-          resp = os.environ["RESPONSE"]
-          if resp.startswith("LLM_UNAVAILABLE"):
-              msg = f"⚠️ Traductor de PR a negocio: LLM no disponible ahora mismo, no se tradujo {os.environ['PR_URL']} en este run. ({resp})"
-          else:
-              msg = f"📊 Nuevo PR traducido a negocio: {os.environ['PR_URL']}\n\n" + resp
-          data = json.dumps({"content": msg[:1900]}).encode()
-          req = urllib.request.Request(os.environ["DISCORD_WEBHOOK_URL"], data=data,
-                                       headers={"Content-Type": "application/json", "User-Agent": "Mozilla/5.0 (compatible; SportMatchBot/1.0)"})
-          urllib.request.urlopen(req)
-          PY
-
-# Secrets: LLM_API_KEY (Gemini u otro OpenAI-compatible), DISCORD_WEBHOOK_QA
-# Variables opcionales: LLM_BASE_URL, LLM_MODEL (ver .github/scripts/llm.sh)
+  pr-business-translator:
+    permissions:
+      contents: read
+      pull-requests: write
+    uses: SportmatchOrg/agents-copilot/.github/workflows/pr-business-translator-reusable.yml@main
+    secrets:
+      LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
+      DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK_QA }}
