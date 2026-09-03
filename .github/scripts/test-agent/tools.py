@@ -63,7 +63,7 @@ NO_TESTS_RE = re.compile(r"Tests:\s+0 total|No tests found", re.I)
 
 
 # Jest lista cada fallo como "● Describe › [AC-7] nombre del test".
-FAILED_AC_RE = re.compile(r"●[^\n]*?\[(AC-\d+)\]")
+FAILED_AC_RE = re.compile(r"●[^\n]*?\[(AC-\d+)[a-z]?\]")
 # Un `it.failing` que PASA rompe la suite con este mensaje. Es la señal de que
 # la marca estaba de más, y destildarla es la única forma de llegar a verde:
 # el validador la necesita para no confundir esa corrección con encubrir un bug.
@@ -75,7 +75,7 @@ def marcas_de_mas(salida: str) -> list[str]:
     out = set()
     for chunk in salida.split("●")[1:]:
         if FAILING_PASSED_MSG in chunk:
-            m = re.search(r"\[(AC-\d+)\]", chunk.split("\n")[0])
+            m = re.search(r"\[(AC-\d+)[a-z]?\]", chunk.split("\n")[0])
             if m:
                 out.add(m.group(1))
     return sorted(out)
@@ -93,7 +93,7 @@ def _slice_block(content: str, start: int) -> str:
 
 def ac_block(content: str, ac_id: str) -> str:
     """El cuerpo del `it('[AC-n] ...')`, vacío si no está."""
-    m = re.search(rf"^\s*(?:it|test)(?:\.failing)?\s*\(\s*['\"`]\s*\[{ac_id}\]",
+    m = re.search(rf"^\s*(?:it|test)(?:\.failing)?\s*\(\s*['\"`]\s*\[{ac_id}[a-z]?\]",
                   content, re.M)
     return _slice_block(content, m.end()) if m else ""
 

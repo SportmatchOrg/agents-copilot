@@ -91,6 +91,36 @@ class ReglaDosVerbatimTest(unittest.TestCase):
         self.assertNotEqual(a["sha"], b["sha"])
 
 
+class SubEtiquetasTest(unittest.TestCase):
+    """Un AC del ticket puede empaquetar varias afirmaciones —"inexistente →
+    404. Ya jugado → 400. Sin token → 401"— y el agente lo parte en `[AC-4a]` y
+    `[AC-4b]`. Sin el sufijo, esos tests no matcheaban ninguna regex y el
+    trabajo no contaba para nada."""
+
+    SPEC = """
+  it('[AC-4a] inexistente devuelve 404', async () => { await x.expect(404); });
+  it.failing('[AC-4b] ya jugado devuelve 400', async () => { await x.expect(400); });
+  it('[AC-5] otro caso', async () => { await x.expect(200); });
+"""
+
+    def test_la_cobertura_cuenta_el_ac_base(self):
+        self.assertEqual(sorted(set(v.AC_RE.findall(self.SPEC))), ["AC-4", "AC-5"])
+
+    def test_el_bloque_se_encuentra_por_el_ac_base(self):
+        b = tools.ac_block(self.SPEC, "AC-4")
+        self.assertIn("expect(404)", b)
+        self.assertNotIn("AC-5", b)
+
+    def test_es_failing_ve_la_sub_etiqueta(self):
+        self.assertTrue(v._es_failing(self.SPEC, "AC-4"))
+
+    def test_un_ac_sin_sufijo_sigue_andando(self):
+        self.assertIn("expect(200)", tools.ac_block(self.SPEC, "AC-5"))
+
+    def test_jest_reporta_el_ac_base(self):
+        self.assertEqual(tools.FAILED_AC_RE.findall("● S › [AC-4b] ya jugado"), ["AC-4"])
+
+
 class ReglaDosVeredictoTest(unittest.TestCase):
     """La regla 2 estuvo mal dos veces: primero floja (comparaba solo nombres,
     así que vaciar el cuerpo pasaba) y después estricta de más (bloqueaba al

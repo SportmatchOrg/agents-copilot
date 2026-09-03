@@ -38,7 +38,12 @@ SERVICE_ROOT = os.environ.get("SERVICE_ROOT", "back").strip("/")
 ALLOWED_REPOS = {"SportmatchOrg/sportmatch-sandbox"}
 
 SPEC_RE = re.compile(rf"^{re.escape(SERVICE_ROOT)}/test/[A-Za-z0-9._-]+\.e2e-spec\.ts$")
-AC_RE = re.compile(r"^\s*(?:it|test)(?:\.failing)?\s*\(\s*['\"`]\s*\[(AC-\d+)\]", re.M)
+# El sufijo opcional: un AC del ticket puede empaquetar varias afirmaciones
+# ("Partido inexistente → 404. Partido ya jugado → 400. Sin token → 401") y el
+# agente lo parte en `[AC-4a]` y `[AC-4b]`, que es buena práctica. Sin el
+# sufijo esos tests no matcheaban y el trabajo no contaba para nada.
+AC_RE = re.compile(
+    r"^\s*(?:it|test)(?:\.failing)?\s*\(\s*['\"`]\s*\[(AC-\d+)[a-z]?\]", re.M)
 FAILING_RE = re.compile(r"^\s*(?:it|test)\.failing\s*\(\s*(['\"`])(.+?)\1", re.M)
 BUG_FIELDS = ("ac", "request", "expected", "actual")
 
@@ -66,7 +71,7 @@ def r2_veredicto(name: str, sha: str | None, final_failing: dict[str, str],
     """
     if name in final_failing:
         return "cuerpo" if sha and final_failing[name] != sha else "sigue"
-    ac = re.search(r"\[(AC-\d+)\]", name)
+    ac = re.search(r"\[(AC-\d+)[a-z]?\]", name)
     if ac and ac.group(1) in marcas_de_mas:
         return "destildado"
     return "falta"
@@ -76,7 +81,7 @@ def _es_failing(content: str, ac_id: str) -> bool:
     """¿El `[AC-n]` quedó marcado `it.failing`? Entonces el agente lo reportó
     como bug en vez de taparlo, que es justo lo que queremos."""
     return bool(re.search(
-        rf"^\s*(?:it|test)\.failing\s*\(\s*['\"`]\s*\[{ac_id}\]", content, re.M))
+        rf"^\s*(?:it|test)\.failing\s*\(\s*['\"`]\s*\[{ac_id}[a-z]?\]", content, re.M))
 
 
 def asserts_lo_que_pide(ac_text: str, block: str) -> bool:
