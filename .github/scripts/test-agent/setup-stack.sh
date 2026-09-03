@@ -57,13 +57,29 @@ echo "→ cliente Prisma"
 echo "→ migraciones"
 ( cd "$SERVICE" && npx prisma migrate deploy )
 
-echo "→ verificando el oráculo con el spec de ejemplo"
-# Si el spec escrito a mano no pasa, el problema es el entorno y no el agente.
-# Mejor descubrirlo acá que después de gastar cinco iteraciones.
-if ! ( cd "$SERVICE" && npm run test:e2e -- --testPathPatterns 'example' >/dev/null 2>&1 ); then
-  echo "❌ el spec de ejemplo no pasa. El oráculo no es confiable; se aborta."
-  ( cd "$SERVICE" && npm run test:e2e -- --testPathPatterns 'example' 2>&1 | tail -30 )
+# Si el spec de verificación no pasa, el problema es el entorno y no el agente.
+# Mejor descubrirlo acá que después de gastar iteraciones y cuota.
+#
+# Un repo puede no tener spec de ejemplo: `install-harness.sh` deja `test/` con
+# solo configuración a propósito, para no dejar un test de ejemplo viviendo para
+# siempre en el repo. En ese caso el gate usa el mismo spec de humo que el
+# instalador — se escribe, corre y se borra.
+HARNESS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)/test-harness"
+if ls "$SERVICE"/test/*example*.e2e-spec.ts >/dev/null 2>&1; then
+  PATRON='example'; LIMPIAR=""
+  echo "→ verificando el oráculo con el spec de ejemplo"
+else
+  PATRON='__smoke__'; LIMPIAR="$SERVICE/test/__smoke__.e2e-spec.ts"
+  echo "→ verificando el oráculo con el spec de humo (temporal)"
+  cp "$HARNESS_DIR/smoke.e2e-spec.ts" "$LIMPIAR"
+fi
+
+if ! ( cd "$SERVICE" && npm run test:e2e -- --testPathPatterns "$PATRON" >/dev/null 2>&1 ); then
+  echo "❌ el spec de verificación no pasa. El oráculo no es confiable; se aborta."
+  ( cd "$SERVICE" && npm run test:e2e -- --testPathPatterns "$PATRON" 2>&1 | tail -30 )
+  [ -n "$LIMPIAR" ] && rm -f "$LIMPIAR"
   exit 1
 fi
+[ -n "$LIMPIAR" ] && rm -f "$LIMPIAR"
 
 echo "✅ stack listo"
