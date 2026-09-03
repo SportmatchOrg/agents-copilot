@@ -114,10 +114,21 @@ jobs:
             echo "LLM no disponible, no se comenta el PR: $RESPONSE"
             exit 0
           fi
-          printf '### ✅ Definition of Done — chequeo automático\n\n%s\n\n---\n*Chequeo asistido por IA. La decisión de cerrar es humana.*' "$RESPONSE" > body.md
-          # --edit-last edita el último comentario de este mismo actor (el bot), nunca uno humano.
-          # Evita spamear un comentario nuevo en cada push al PR.
-          gh pr comment "$PR" --edit-last --create-if-none --body-file body.md
+          MARKER='<!-- agente:dod-checker -->'
+          {
+            echo "$MARKER"
+            printf '### ✅ Definition of Done — chequeo automático\n\n%s\n\n---\n*Chequeo asistido por IA. La decisión de cerrar es humana.*' "$RESPONSE"
+          } > body.md
+          # Busca el comentario propio por marcador, no "el último de este actor": DoD checker y
+          # el Traductor postean como el mismo bot (GITHUB_TOKEN) y `--edit-last` termina
+          # pisándose entre sí cuando los dos corren sobre el mismo PR (verificado en sandbox).
+          EXISTING=$(gh api "repos/${{ github.repository }}/issues/$PR/comments" --paginate \
+            --jq "[.[] | select(.body | startswith(\"$MARKER\"))] | last | .id // empty")
+          if [ -n "$EXISTING" ]; then
+            gh api "repos/${{ github.repository }}/issues/comments/$EXISTING" -X PATCH -f body=@body.md >/dev/null
+          else
+            gh pr comment "$PR" --body-file body.md
+          fi
 
       - name: Reportar en Linear (comentar el ticket real, o crear uno de seguimiento si no hay)
         env:

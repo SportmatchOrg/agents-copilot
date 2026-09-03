@@ -92,9 +92,21 @@ jobs:
             echo "LLM no disponible, no se comenta el PR: $RESPONSE"
             exit 0
           fi
-          printf '### 📊 Resumen para negocio (IA)\n\n%s\n\n---\n*Generado automáticamente. La decisión es humana ("Lab4 no codifica").*' "$RESPONSE" > body.md
-          # --edit-last edita el último comentario de este mismo actor (el bot), nunca uno humano.
-          gh pr comment "$PR" --edit-last --create-if-none --body-file body.md
+          MARKER='<!-- agente:pr-business-translator -->'
+          {
+            echo "$MARKER"
+            printf '### 📊 Resumen para negocio (IA)\n\n%s\n\n---\n*Generado automáticamente. La decisión es humana ("Lab4 no codifica").*' "$RESPONSE"
+          } > body.md
+          # Busca el comentario propio por marcador, no "el último de este actor": el Traductor y
+          # DoD checker postean como el mismo bot (GITHUB_TOKEN) y `--edit-last` termina
+          # pisándose entre sí cuando los dos corren sobre el mismo PR (verificado en sandbox).
+          EXISTING=$(gh api "repos/${{ github.repository }}/issues/$PR/comments" --paginate \
+            --jq "[.[] | select(.body | startswith(\"$MARKER\"))] | last | .id // empty")
+          if [ -n "$EXISTING" ]; then
+            gh api "repos/${{ github.repository }}/issues/comments/$EXISTING" -X PATCH -f body=@body.md >/dev/null
+          else
+            gh pr comment "$PR" --body-file body.md
+          fi
 
       - name: Avisar por Discord
         env:
