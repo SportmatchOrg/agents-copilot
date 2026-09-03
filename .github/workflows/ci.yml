@@ -1,0 +1,71 @@
+name: CI
+
+# Los 9 wrappers instalados en los repos destino apuntan a `@main`, a propósito:
+# así mejorar un agente no requiere tocar `sportmatch`. El precio es que CADA
+# push a main pasa a ser, en el acto, el código que corre contra producción.
+#
+# Por eso main tiene que estar siempre en verde. Sin esto, la garantía era
+# "alguien se acordó de correr los tests en su máquina".
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Tests del test agent
+        run: python3 -m unittest discover -s .github/scripts/test-agent -p 'test_*.py' -v
+
+  wrappers:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # El bug que casi se publica hoy: cuatro wrappers apuntaban a reusables
+      # que no existían. GitHub los rechaza sin generar un error visible, que
+      # es exactamente cómo la regresión de sportmatch pasó 5 días sin que
+      # nadie la notara.
+      - name: Cada wrapper apunta a un reusable que existe
+        run: |
+          fallos=0
+          for w in github/workflows/*.yml; do
+            ref=$(grep -oE 'uses: SportmatchOrg/agents-copilot/\.github/workflows/[a-z-]+\.yml' "$w" \
+                  | sed 's|.*/||') || true
+            [ -z "$ref" ] && { echo "· $(basename "$w") — sin uses:, se omite"; continue; }
+            if [ -f ".github/workflows/$ref" ]; then
+              echo "✓ $(basename "$w") → $ref"
+            else
+              echo "✗ $(basename "$w") → $ref NO EXISTE"; fallos=1
+            fi
+          done
+          exit $fallos
+
+      - name: Los reusables se parsean como YAML
+        run: |
+          python3 - <<'PY'
+          import sys, pathlib
+          try:
+              import yaml
+          except ImportError:
+              sys.exit("pyyaml no disponible")
+          malos = []
+          for f in sorted(pathlib.Path(".github/workflows").glob("*.yml")):
+              try:
+                  d = yaml.safe_load(f.read_text())
+              except Exception as e:
+                  malos.append(f"{f.name}: {e}"); continue
+              if not (d or {}).get("jobs"):
+                  malos.append(f"{f.name}: sin jobs")
+          print("\n".join(malos) or "todos los workflows parsean")
+          sys.exit(1 if malos else 0)
+          PY

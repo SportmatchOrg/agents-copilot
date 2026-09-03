@@ -25,11 +25,14 @@ parámetro a propósito. No es un bug del código: es un ticket que quedó viejo
 Alguien tiene que decidir si se actualiza el AC o se agrega la validación.
 Sin dueño, los `it.failing` se acumulan y nadie los mira.
 
-**2. Fijar la versión de los agentes.** Los 9 wrappers usan `@main`. Para
-producción conviene un tag (`@v1`) que se mueva a propósito: con `@main`, un
-push a `agents-copilot` cambia en silencio los agentes que corren contra el
-repo real. Es una decisión para los 9, no solo para el test agent — por eso
-no la tomé sola.
+~~**2. Fijar la versión de los agentes.**~~ **Decidido: se quedan en `@main`.**
+La gracia del diseño es actualizar un agente sin tocar `sportmatch`, y un tag
+fijo lo rompe.
+
+El precio es que cada push a main pasa a ser, en el acto, el código que corre
+contra producción. Por eso se agregó CI a este repo (`ci.yml`): los 67 tests
+y la verificación de que cada wrapper apunte a un reusable que existe. Antes
+la garantía era "alguien se acordó de correr los tests en su máquina".
 
 **3. La mediana de iteraciones.** Las corridas cierran en 7-12 de 15. §11 del
 plan dice que si toca el techo consistentemente, el problema es la precarga
