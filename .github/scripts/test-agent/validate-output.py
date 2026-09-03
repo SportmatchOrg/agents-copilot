@@ -264,9 +264,20 @@ def main() -> int:
         print(f"⚠️  {descartados} suspected_bug sin evidencia completa "
               f"({', '.join(BUG_FIELDS)}); se descartan")
 
+    # Si el loop se quedó sin turnos antes de `finish`, `suspectedBugs` viene
+    # vacío aunque el agente HAYA marcado bugs con `it.failing`. Pasó en SPO-182:
+    # seis bloques marcados, cero reportados. Sin esto quedan invisibles para
+    # quien lee el resumen, que es donde se decide si la PR vale.
+    marcados = sorted(final_failing)
+    if marcados and not bugs:
+        print(f"⚠️  {len(marcados)} test(s) marcados `it.failing` sin entrada en "
+              f"suspectedBugs: el loop no llegó a `finish`. Van al resumen igual "
+              f"— son el entregable de más valor (§4), no se pierden por un turno.")
+
     validated = {
         **output,
         "specs": specs,
+        "failingMarcados": marcados,
         "coverage": coverage,
         "coveredCount": n_covered,
         "totalAc": total_ac,
@@ -293,6 +304,7 @@ def write_summary(ctx_dir: Path, data: dict) -> None:
         ("Resultado", f"`{data.get('outcome')}`"),
         ("Iteraciones", f"{data.get('iterations')} / {data.get('maxIterations', 5)}"),
         ("AC cubiertos", f"{data.get('coveredCount')} / {data.get('totalAc')}"),
+        ("Tests marcados `it.failing`", str(len(data.get("failingMarcados") or []))),
         ("Posibles bugs", str(len(data.get("suspectedBugs") or []))),
         ("Corridas de tests", str(data.get("testRuns"))),
         ("Modelos", ", ".join(data.get("modelsUsed") or []) or "—"),
@@ -302,6 +314,16 @@ def write_summary(ctx_dir: Path, data: dict) -> None:
     for c in data.get("coverage") or []:
         mark = "✅" if c.get("covered") else "⬜"
         lines.append(f"- {mark} `{c['ac']}` {c.get('text', '')}".rstrip())
+    marcados = data.get("failingMarcados") or []
+    if marcados and not (data.get("suspectedBugs") or []):
+        # El loop no llegó a `finish`, así que no hay evidencia estructurada
+        # (§4 regla 3). Los bloques marcados existen igual y son lo más valioso
+        # que produjo la corrida: se listan, con la salvedad dicha.
+        lines += ["", "### Marcados como `suspected_bug`, sin reporte estructurado",
+                  "", "El loop se quedó sin turnos antes de `finish`. Estos tests "
+                  "quedaron marcados `it.failing` — pasan porque fallan, y "
+                  "documentan un incumplimiento del AC:", ""]
+        lines += [f"- `{n}`" for n in marcados]
     (ctx_dir / "summary.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 

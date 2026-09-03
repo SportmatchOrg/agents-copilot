@@ -68,15 +68,27 @@ def body(data: dict, ticket: str) -> str:
         lines.append(f"- {mark} `{c['ac']}`{text}")
 
     bugs = data.get("suspectedBugs") or []
+    marcados = data.get("failingMarcados") or []
     lines += ["", "## Posibles bugs encontrados", ""]
-    if not bugs:
+    FAILING_NOTA = (
+        "Estos tests están marcados con `it.failing(...)`. **En Jest, un test "
+        "marcado así pasa cuando falla**: por eso la suite queda verde. "
+        "Cuando alguien arregle el bug, ese test va a empezar a fallar — esa "
+        "es la señal de que ya se le puede sacar el `.failing`.")
+    if not bugs and not marcados:
         lines.append("_Ninguno._")
+    elif not bugs:
+        # El loop no llegó a `finish`, así que no hay evidencia estructurada
+        # (§4 regla 3), pero los bloques marcados existen. Decir "Ninguno" acá
+        # sería enterrar el entregable de más valor de la corrida: en SPO-182
+        # eran seis, sobre un ticket que resultó estar sin implementar.
+        lines += [FAILING_NOTA, "",
+                  "> ⚠️ El loop se quedó sin turnos antes de cerrar, así que no "
+                  "dejó el detalle de request/esperado/obtenido. Los tests "
+                  "marcados son estos y hay que revisarlos a mano:", ""]
+        lines += [f"- `{n}`" for n in marcados]
     else:
-        lines.append(
-            "Estos tests están marcados con `it.failing(...)`. **En Jest, un test "
-            "marcado así pasa cuando falla**: por eso la suite queda verde. "
-            "Cuando alguien arregle el bug, ese test va a empezar a fallar — esa "
-            "es la señal de que ya se le puede sacar el `.failing`.")
+        lines.append(FAILING_NOTA)
         lines.append("")
         for bug in bugs:
             lines += [

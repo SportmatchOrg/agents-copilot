@@ -207,13 +207,35 @@ def main() -> int:
         outcome = "budget"
         print(f"[loop] se agotaron las {MAX_ITERATIONS} iteraciones", flush=True)
 
+    # --- verificación final, fuera del presupuesto del modelo ---------------
+    # SPO-168, SPO-171 y SPO-182 murieron las tres igual: el último turno se fue
+    # en un `write_spec_file` y el spec quedó sin correr. En SPO-182 eso descartó
+    # seis `it.failing` legítimos —el primer hallazgo real del agente— por una
+    # sola acción.
+    #
+    # Subir el techo no lo arregla: no es un problema de cantidad de turnos sino
+    # de en qué se gasta el último. Y pedirlo en el prompt ya se probó y no
+    # alcanzó. Correr el oráculo no es una decisión que necesite al modelo, así
+    # que la toma el arnés y no le cuesta una iteración.
+    if (not _spec_verified(history) and toolbox.written
+            and toolbox.test_runs < MAX_TEST_RUNS):
+        print("\n[loop] verificación final (no cuenta como iteración)", flush=True)
+        final = toolbox.run_tests()
+        failed_acs |= set((final.meta or {}).get("failed_acs") or [])
+        history.append({"iteration": None, "model": None, "forced": True,
+                        "thought": "verificación final forzada por el arnés",
+                        "action": "run_tests", "ok": final.ok,
+                        "output_head": final.output[:300]})
+        print(f"   {'✓' if final.ok else '✗'} "
+              f"{final.output.splitlines()[0][:160] if final.output else ''}")
+
     payload = {
         "ticket": args.ticket,
         "maxIterations": MAX_ITERATIONS,
         "specVerified": _spec_verified(history),
         "rf": context.get("rf"),
         "outcome": outcome,
-        "iterations": len(history),
+        "iterations": sum(1 for h in history if not h.get("forced")),
         "modelsUsed": sorted({h["model"] for h in history if h.get("model")}),
         "specsWritten": toolbox.written,
         "testRuns": toolbox.test_runs,
