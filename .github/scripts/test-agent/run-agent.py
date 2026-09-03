@@ -165,6 +165,8 @@ def main() -> int:
 
     payload = {
         "ticket": args.ticket,
+        "maxIterations": MAX_ITERATIONS,
+        "specVerified": _spec_verified(history),
         "rf": context.get("rf"),
         "outcome": outcome,
         "iterations": len(history),
@@ -190,6 +192,27 @@ def main() -> int:
     if outcome == "llm_unavailable":
         return 0
     return 0
+
+
+def _spec_verified(history: list[dict]) -> bool:
+    """¿El spec que se entrega pasó por el oráculo?
+
+    Un `outcome=budget` que corta justo después de un `write_spec_file` deja un
+    archivo que NUNCA se ejecutó. Pasó en las corridas de SPM-42 y SPO-168: job
+    verde, rama pusheada, "9/12 AC cubiertos" — sobre un spec sin verificar.
+
+    Verificado = después del último write exitoso hubo un `run_tests` en verde.
+    Un `it.failing` bien usado deja la suite en verde, así que un suspected_bug
+    legítimo sigue contando como verificado.
+    """
+    last_write = max(
+        (i for i, e in enumerate(history)
+         if e.get("action") == "write_spec_file" and e.get("ok")),
+        default=None)
+    if last_write is None:
+        return False
+    return any(e.get("action") == "run_tests" and e.get("ok")
+               for e in history[last_write + 1:])
 
 
 FAILING_RE = re.compile(r"^\s*(?:it|test)\.failing\s*\(\s*(['\"`])(.+?)\1", re.M)

@@ -8,7 +8,12 @@ buscar.
 
 from __future__ import annotations
 
-MAX_ITERATIONS = 5
+# Era 5, siguiendo el presupuesto de §5.3 (write/test/fix/test/finish). En la
+# práctica el agente necesita DOS rondas de corrección y termina en 6-7: las
+# corridas de SPM-42 y SPO-168 murieron las dos por `budget` escribiendo, sin
+# llegar a verificar. El techo de 5 no ahorraba nada — la cuota free se mide en
+# requests por día, no en minutos — y costó dos corridas enteras.
+MAX_ITERATIONS = 7
 
 SYSTEM = f"""\
 Sos el API Test Agent de SportMatch. Escribís tests de integración (e2e) para la
@@ -24,7 +29,13 @@ Presupuesto esperado:
   2. run_tests
   3. corregir o clasificar el fallo
   4. run_tests
-  5. finish
+  5. corregir lo que quede
+  6. run_tests
+  7. finish
+
+NUNCA termines con un `write_spec_file`: un spec que no corriste no vale nada y
+el validador va a rechazar la entrega. Si te queda una sola acción, usala en
+`run_tests`; si te quedan dos, `run_tests` y después `finish`.
 
 === FORMATO DE RESPUESTA ===
 

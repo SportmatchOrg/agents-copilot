@@ -133,6 +133,18 @@ def main() -> int:
         tail = (tsc.stdout + tsc.stderr)[-1500:]
         fail(f"los tests no compilan:\n{tail}")
 
+    # --- el spec entregado pasó por el oráculo ------------------------------
+    # Mismo criterio que el bloque de "no produjo tests": un verde sobre un spec
+    # que nunca se ejecutó entrena a ignorar el check. Un `outcome=budget` que
+    # corta justo después de un write deja exactamente eso, y la cobertura mide
+    # que exista un `it('[AC-n]...')`, no que pase — así que sin esta guarda el
+    # summary informa "9/12 cubiertos" sobre un archivo sin correr.
+    if not output.get("specVerified", True):
+        fail(f"el spec entregado nunca se ejecutó: la corrida terminó con "
+             f"outcome={output.get('outcome')} justo después de escribirlo, sin "
+             f"un run_tests en verde detrás. La cobertura mide nombres de it(), "
+             f"no resultados: publicarlo sería informar un número sin respaldo.")
+
     # --- cobertura medida, no declarada (§8) --------------------------------
     covered: set[str] = set()
     for rel in specs:
@@ -196,7 +208,7 @@ def write_summary(ctx_dir: Path, data: dict) -> None:
     """
     rows = [
         ("Resultado", f"`{data.get('outcome')}`"),
-        ("Iteraciones", f"{data.get('iterations')} / 5"),
+        ("Iteraciones", f"{data.get('iterations')} / {data.get('maxIterations', 5)}"),
         ("AC cubiertos", f"{data.get('coveredCount')} / {data.get('totalAc')}"),
         ("Posibles bugs", str(len(data.get("suspectedBugs") or []))),
         ("Corridas de tests", str(data.get("testRuns"))),
