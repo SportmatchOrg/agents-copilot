@@ -111,6 +111,21 @@ class SubEtiquetasTest(unittest.TestCase):
         self.assertIn("expect(404)", b)
         self.assertNotIn("AC-5", b)
 
+    def test_junta_TODOS_los_bloques_del_mismo_ac(self):
+        # Caso real de SPO-182: `[AC-7]` era un placeholder honesto sobre el
+        # límite del harness y `[AC-7b]` verificaba el 404. Mirando solo el
+        # primero, el AC figuraba sin verificar y la guarda lo marcaba mal.
+        spec = """
+  it('[AC-7] sin token devuelve 401', async () => { expect(true).toBe(true); });
+  it('[AC-7b] id inexistente devuelve 404', async () => { await x.expect(404); });
+  it('[AC-8] otra cosa', async () => { await x.expect(200); });
+"""
+        b = tools.ac_block(spec, "AC-7")
+        self.assertIn("expect(404)", b)
+        self.assertNotIn("AC-8", b)
+        self.assertTrue(v.asserts_lo_que_pide(
+            "Sin token, **401**. Id inexistente, **404**.", b))
+
     def test_es_failing_ve_la_sub_etiqueta(self):
         self.assertTrue(v._es_failing(self.SPEC, "AC-4"))
 

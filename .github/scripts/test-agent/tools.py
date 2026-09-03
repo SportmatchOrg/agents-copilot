@@ -92,10 +92,24 @@ def _slice_block(content: str, start: int) -> str:
 
 
 def ac_block(content: str, ac_id: str) -> str:
-    """El cuerpo del `it('[AC-n] ...')`, vacío si no está."""
-    m = re.search(rf"^\s*(?:it|test)(?:\.failing)?\s*\(\s*['\"`]\s*\[{ac_id}[a-z]?\]",
-                  content, re.M)
-    return _slice_block(content, m.end()) if m else ""
+    """TODOS los cuerpos de `it('[AC-n] ...')`, concatenados. Vacío si no hay.
+
+    Devolver solo el primero era un falso positivo esperando: desde que se
+    aceptan sub-etiquetas, un AC puede tener varios bloques. En SPO-182 el
+    `[AC-7]` era un placeholder honesto —"el guard está mockeado, 401 no se
+    puede observar"— y el `[AC-7b]` de al lado sí verificaba el 404. Mirando
+    solo el primero, el AC figuraba sin verificar.
+
+    Importa que sea exhaustivo porque de acá sale también el aborto de la
+    prohibición 1: un falso positivo ahí mata una corrida buena.
+    """
+    bloques = [
+        _slice_block(content, m.end())
+        for m in re.finditer(
+            rf"^\s*(?:it|test)(?:\.failing)?\s*\(\s*['\"`]\s*\[{ac_id}[a-z]?\]",
+            content, re.M)
+    ]
+    return "\n".join(bloques)
 
 
 def failing_blocks(content: str) -> list[dict]:
