@@ -49,6 +49,29 @@ STATUS_IN_TEST_RE = re.compile(
     r"\.expect\(\s*(\d{3})\s*\)|\.status\s*\)?\s*\.toBe\(\s*(\d{3})\s*\)")
 
 
+def r2_veredicto(name: str, sha: str | None, final_failing: dict[str, str],
+                 marcas_de_mas: set[str]) -> str:
+    """Qué le pasó a un bloque marcado `suspected_bug` (§4 regla 2).
+
+    La regla protege contra ENCUBRIR un bug, no contra corregir la marca. En
+    SPO-171 el agente marcó de más, Jest le respondió "Failing test passed even
+    though it was supposed to fail" —un `it.failing` que pasa ROMPE la suite— y
+    corregirlo era la única forma de llegar a verde.
+
+      sigue         el bloque está igual
+      cuerpo        sigue marcado, le cambió el cuerpo → se avisa y se permite;
+                    que siga afirmando lo que pide el AC lo exige la prohibición 1
+      destildado    ya no está, pero Jest dijo que la marca estaba de más
+      falta         ya no está y nadie lo justificó → aborta
+    """
+    if name in final_failing:
+        return "cuerpo" if sha and final_failing[name] != sha else "sigue"
+    ac = re.search(r"\[(AC-\d+)\]", name)
+    if ac and ac.group(1) in marcas_de_mas:
+        return "destildado"
+    return "falta"
+
+
 def _es_failing(content: str, ac_id: str) -> bool:
     """¿El `[AC-n]` quedó marcado `it.failing`? Entonces el agente lo reportó
     como bug en vez de taparlo, que es justo lo que queremos."""
@@ -154,21 +177,35 @@ def main() -> int:
         for blk in tools.failing_blocks(content):
             final_failing[blk["name"]] = blk["sha"]
 
+    # La regla 2 protege contra ENCUBRIR un bug, no contra corregir la marca.
+    # El sha del cuerpo como aborto absoluto era de más: en SPO-171 el agente
+    # marcó de más en la iteración 5, Jest le respondió "Failing test passed
+    # even though it was supposed to fail" —un `it.failing` que pasa ROMPE la
+    # suite— y en la 7 estaba corrigiendo. Trabajo legítimo, y la única forma de
+    # llegar a verde. Bloquearlo lo dejaba atrapado entre dos reglas.
+    #
+    # Queda: el bloque no puede DESAPARECER. Que le cambie el cuerpo mientras
+    # sigue siendo `it.failing` es refinar la reproducción, y que además siga
+    # verificando lo que pide el AC ya lo exige la prohibición 1.
+    marcas_de_mas = set(output.get("marcasDeMas") or [])
     for snap in output.get("failingSnapshots") or []:
         for blk in snap.get("failing_blocks") or []:
-            # Las corridas viejas guardaban solo el nombre (una string).
             name = blk["name"] if isinstance(blk, dict) else blk
             sha = blk.get("sha") if isinstance(blk, dict) else None
-            if name not in final_failing:
+            v = r2_veredicto(name, sha, final_failing, marcas_de_mas)
+            if v == "cuerpo":
+                print(f"⚠️  {name!r} sigue marcado pero le cambió el cuerpo "
+                      f"(iteración {snap.get('iteration')}). Permitido: la "
+                      f"prohibición 1 verifica que siga afirmando lo que pide "
+                      f"el AC.")
+            elif v == "destildado":
+                print(f"⚠️  {name!r} se destildó porque Jest avisó que el "
+                      f"`it.failing` PASABA: la marca estaba de más, no es §4 "
+                      f"regla 2.")
+            elif v == "falta":
                 fail(f"el test marcado como suspected_bug {name!r} "
                      f"(iteración {snap.get('iteration')}) ya no está en el "
                      f"archivo final. §4 regla 2: no se reescriben ni se borran.")
-            if sha and final_failing[name] != sha:
-                fail(f"el test marcado como suspected_bug {name!r} "
-                     f"(iteración {snap.get('iteration')}) sigue estando pero le "
-                     f"cambió el cuerpo. §4 regla 2 pide el bloque verbatim: "
-                     f"conservar el nombre y vaciar el test es la misma "
-                     f"maniobra que borrarlo.")
 
     # --- los specs compilan -------------------------------------------------
     service = repo / SERVICE_ROOT

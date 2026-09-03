@@ -106,6 +106,9 @@ def main() -> int:
     # que falle y después pase en verde con el assert aflojado es la prohibición
     # 1 de §4, que hasta ahora no tenía ningún mecanismo detrás.
     failed_acs: set[str] = set()
+    # AC cuyo `it.failing` PASÓ: la marca estaba de más y destildarla es
+    # legítimo, no encubrir un bug (§4 regla 2).
+    marcas_de_mas: set[str] = set()
 
     iteration = 0
     free_retries = 0
@@ -178,6 +181,7 @@ def main() -> int:
         elif action == "run_tests":
             result = toolbox.run_tests(str(call_args.get("pattern", "")))
             failed_acs |= set((result.meta or {}).get("failed_acs") or [])
+            marcas_de_mas |= set((result.meta or {}).get("marcas_de_mas") or [])
         else:
             result = tools_mod.ToolResult(
                 False, f"acción desconocida: {action!r}. Usá read_file, list_dir, "
@@ -224,6 +228,7 @@ def main() -> int:
         print("\n[loop] verificación final (no cuenta como iteración)", flush=True)
         final = toolbox.run_tests()
         failed_acs |= set((final.meta or {}).get("failed_acs") or [])
+        marcas_de_mas |= set((final.meta or {}).get("marcas_de_mas") or [])
         history.append({"iteration": None, "model": None, "forced": True,
                         "thought": "verificación final forzada por el arnés",
                         "action": "run_tests", "ok": final.ok,
@@ -247,6 +252,7 @@ def main() -> int:
         "criteria": context.get("criteria") or [],
         "failingSnapshots": failing_snapshots,
         "failedAcs": sorted(failed_acs),
+        "marcasDeMas": sorted(marcas_de_mas),
     }
     (ctx_dir / "agent-output.json").write_text(
         json.dumps(payload, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")

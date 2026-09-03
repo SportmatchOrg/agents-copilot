@@ -91,6 +91,51 @@ class ReglaDosVerbatimTest(unittest.TestCase):
         self.assertNotEqual(a["sha"], b["sha"])
 
 
+class ReglaDosVeredictoTest(unittest.TestCase):
+    """La regla 2 estuvo mal dos veces: primero floja (comparaba solo nombres,
+    así que vaciar el cuerpo pasaba) y después estricta de más (bloqueaba al
+    agente corrigiendo una marca que Jest le dijo que sobraba)."""
+
+    FINAL = {"[AC-4] ya jugado devuelve 400": "aaa"}
+
+    def test_intacto(self):
+        self.assertEqual(v.r2_veredicto(
+            "[AC-4] ya jugado devuelve 400", "aaa", self.FINAL, set()), "sigue")
+
+    def test_cuerpo_distinto_se_permite(self):
+        self.assertEqual(v.r2_veredicto(
+            "[AC-4] ya jugado devuelve 400", "bbb", self.FINAL, set()), "cuerpo")
+
+    def test_desaparecido_aborta(self):
+        self.assertEqual(v.r2_veredicto(
+            "[AC-9] otro test", "zzz", self.FINAL, set()), "falta")
+
+    def test_desaparecido_pero_jest_dijo_que_sobraba(self):
+        self.assertEqual(v.r2_veredicto(
+            "[AC-9] otro test", "zzz", self.FINAL, {"AC-9"}), "destildado")
+
+    def test_la_excusa_es_por_ac_no_general(self):
+        # Que AC-7 sobrara no habilita borrar el de AC-9.
+        self.assertEqual(v.r2_veredicto(
+            "[AC-9] otro test", "zzz", self.FINAL, {"AC-7"}), "falta")
+
+    def test_corrida_vieja_sin_sha_no_rompe(self):
+        self.assertEqual(v.r2_veredicto(
+            "[AC-4] ya jugado devuelve 400", None, self.FINAL, set()), "sigue")
+
+
+class MarcasDeMasParseTest(unittest.TestCase):
+    def test_detecta_el_aviso_de_jest(self):
+        salida = ("  \u25cf Partidos \u203a [AC-7] no se puede bajar a otro\n"
+                  "    Failing test passed even though it was supposed to fail.\n"
+                  "  \u25cf Partidos \u203a [AC-3] otro que falla de verdad\n"
+                  "    expected 404 got 500\n")
+        self.assertEqual(tools.marcas_de_mas(salida), ["AC-7"])
+
+    def test_una_suite_normal_no_reporta_nada(self):
+        self.assertEqual(tools.marcas_de_mas("Tests: 9 passed, 9 total"), [])
+
+
 class FailedAcParseTest(unittest.TestCase):
     def test_saca_los_ac_de_la_salida_de_jest(self):
         salida = ("  \u25cf Participantes (SPO-168) \u203a [AC-7] enviar usuarioId\n"

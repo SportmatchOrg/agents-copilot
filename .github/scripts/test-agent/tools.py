@@ -64,6 +64,21 @@ NO_TESTS_RE = re.compile(r"Tests:\s+0 total|No tests found", re.I)
 
 # Jest lista cada fallo como "● Describe › [AC-7] nombre del test".
 FAILED_AC_RE = re.compile(r"●[^\n]*?\[(AC-\d+)\]")
+# Un `it.failing` que PASA rompe la suite con este mensaje. Es la señal de que
+# la marca estaba de más, y destildarla es la única forma de llegar a verde:
+# el validador la necesita para no confundir esa corrección con encubrir un bug.
+FAILING_PASSED_MSG = "Failing test passed"
+
+
+def marcas_de_mas(salida: str) -> list[str]:
+    """AC cuyo `it.failing` pasó, o sea que estaba mal marcado."""
+    out = set()
+    for chunk in salida.split("●")[1:]:
+        if FAILING_PASSED_MSG in chunk:
+            m = re.search(r"\[(AC-\d+)\]", chunk.split("\n")[0])
+            if m:
+                out.add(m.group(1))
+    return sorted(out)
 _IT_RE = re.compile(r"^\s*(?:it|test)(?:\.failing)?\s*\(", re.M)
 
 
@@ -280,5 +295,6 @@ class Toolbox:
         return ToolResult(
             proc.returncode == 0,
             f"exit code: {proc.returncode} — {verdict}\n\n{combined.strip()}",
-            {"exit_code": proc.returncode, "failed_acs": failed_acs},
+            {"exit_code": proc.returncode, "failed_acs": failed_acs,
+             "marcas_de_mas": marcas_de_mas(combined)},
         )
