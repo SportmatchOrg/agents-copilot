@@ -14,7 +14,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import re
 import sys
 import time
 from pathlib import Path
@@ -100,6 +99,11 @@ def main() -> int:
     # Snapshot de los tests marcados suspected_bug, por iteración. El validador
     # lo usa para verificar que ninguno fue reescrito después (plan §4, regla 2).
     failing_snapshots: list[dict] = []
+    # Los AC que fallaron en ALGUNA corrida. El validador exige que cada uno
+    # termine o marcado `it.failing`, o siguiendo verificando lo que pide el AC:
+    # que falle y después pase en verde con el assert aflojado es la prohibición
+    # 1 de §4, que hasta ahora no tenía ningún mecanismo detrás.
+    failed_acs: set[str] = set()
 
     iteration = 0
     free_retries = 0
@@ -166,10 +170,12 @@ def main() -> int:
                 failing_snapshots.append({
                     "iteration": iteration,
                     "path": call_args.get("path"),
-                    "failing_blocks": _failing_blocks(str(call_args.get("content", ""))),
+                    "failing_blocks": tools_mod.failing_blocks(
+                        str(call_args.get("content", ""))),
                 })
         elif action == "run_tests":
             result = toolbox.run_tests(str(call_args.get("pattern", "")))
+            failed_acs |= set((result.meta or {}).get("failed_acs") or [])
         else:
             result = tools_mod.ToolResult(
                 False, f"acción desconocida: {action!r}. Usá read_file, list_dir, "
@@ -216,6 +222,7 @@ def main() -> int:
         "suspectedBugs": finish_payload.get("suspectedBugs") or [],
         "criteria": context.get("criteria") or [],
         "failingSnapshots": failing_snapshots,
+        "failedAcs": sorted(failed_acs),
     }
     (ctx_dir / "agent-output.json").write_text(
         json.dumps(payload, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
@@ -251,20 +258,6 @@ def _spec_verified(history: list[dict]) -> bool:
         return False
     return any(e.get("action") == "run_tests" and e.get("ok")
                for e in history[last_write + 1:])
-
-
-FAILING_RE = re.compile(r"^\s*(?:it|test)\.failing\s*\(\s*(['\"`])(.+?)\1", re.M)
-
-
-def _failing_blocks(content: str) -> list[str]:
-    """Nombres de los `it.failing(...)` del archivo.
-
-    Es el snapshot de la regla 2 de §4: un test marcado `suspected_bug` no se
-    puede reescribir ni borrar en una iteración posterior, y como
-    `write_spec_file` reemplaza el archivo entero, la única forma de detectarlo
-    es comparar contra lo que había.
-    """
-    return [name for _, name in FAILING_RE.findall(content)]
 
 
 if __name__ == "__main__":

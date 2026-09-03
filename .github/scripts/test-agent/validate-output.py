@@ -28,6 +28,9 @@ import subprocess
 import sys
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import tools  # noqa: E402
+
 SERVICE_ROOT = os.environ.get("SERVICE_ROOT", "back").strip("/")
 
 # El único hardcode permitido (plan §3.7): el guardarraíl inverso. Agregar el
@@ -46,15 +49,11 @@ STATUS_IN_TEST_RE = re.compile(
     r"\.expect\(\s*(\d{3})\s*\)|\.status\s*\)?\s*\.toBe\(\s*(\d{3})\s*\)")
 
 
-def test_block(content: str, ac_id: str) -> str:
-    """El cuerpo del `it('[AC-n] ...')`, hasta el próximo it/test."""
-    start = re.search(rf"^\s*(?:it|test)(?:\.failing)?\s*\(\s*['\"`]\s*\[{ac_id}\]",
-                      content, re.M)
-    if not start:
-        return ""
-    rest = content[start.end():]
-    nxt = re.search(r"^\s*(?:it|test)(?:\.failing)?\s*\(", rest, re.M)
-    return rest[:nxt.start()] if nxt else rest
+def _es_failing(content: str, ac_id: str) -> bool:
+    """¿El `[AC-n]` quedó marcado `it.failing`? Entonces el agente lo reportó
+    como bug en vez de taparlo, que es justo lo que queremos."""
+    return bool(re.search(
+        rf"^\s*(?:it|test)\.failing\s*\(\s*['\"`]\s*\[{ac_id}\]", content, re.M))
 
 
 def asserts_lo_que_pide(ac_text: str, block: str) -> bool:
@@ -149,17 +148,27 @@ def main() -> int:
         return 1
 
     # --- regla 2 de §4: ningún suspected_bug desapareció --------------------
-    final_failing: set[str] = set()
+    final_failing: dict[str, str] = {}
     for rel in specs:
         content = (repo / rel).read_text(encoding="utf-8", errors="replace")
-        final_failing |= {name for _, name in FAILING_RE.findall(content)}
+        for blk in tools.failing_blocks(content):
+            final_failing[blk["name"]] = blk["sha"]
 
     for snap in output.get("failingSnapshots") or []:
-        for name in snap.get("failing_blocks") or []:
+        for blk in snap.get("failing_blocks") or []:
+            # Las corridas viejas guardaban solo el nombre (una string).
+            name = blk["name"] if isinstance(blk, dict) else blk
+            sha = blk.get("sha") if isinstance(blk, dict) else None
             if name not in final_failing:
                 fail(f"el test marcado como suspected_bug {name!r} "
                      f"(iteración {snap.get('iteration')}) ya no está en el "
                      f"archivo final. §4 regla 2: no se reescriben ni se borran.")
+            if sha and final_failing[name] != sha:
+                fail(f"el test marcado como suspected_bug {name!r} "
+                     f"(iteración {snap.get('iteration')}) sigue estando pero le "
+                     f"cambió el cuerpo. §4 regla 2 pide el bloque verbatim: "
+                     f"conservar el nombre y vaciar el test es la misma "
+                     f"maniobra que borrarlo.")
 
     # --- los specs compilan -------------------------------------------------
     service = repo / SERVICE_ROOT
@@ -191,6 +200,31 @@ def main() -> int:
     all_specs = "\n".join(
         (repo / rel).read_text(encoding="utf-8", errors="replace") for rel in specs)
 
+    # --- §4 prohibición 1: no aflojar un assert para llegar al verde ---------
+    # Hasta acá esta prohibición vivía SOLO en el prompt, y en SPO-168 el modelo
+    # la leyó y la violó igual: bajó un `.expect(400)` a `.expect(201)` y le
+    # cambió el nombre al test para que describiera al código en vez de al AC.
+    #
+    # El dato que lo delata es que ese AC FALLÓ antes: sabemos que el agente
+    # chocó contra esa pared y que después la pared no estaba. Un AC intesteable
+    # (el 401 con el guard overrideado) nunca falla y después pasa, así que no
+    # necesita excepción escrita a mano: queda afuera solo.
+    criteria_txt = output.get("criteria") or []
+    for ac_id in output.get("failedAcs") or []:
+        idx = int(ac_id.split("-")[1])
+        if idx > len(criteria_txt):
+            continue
+        if _es_failing(all_specs, ac_id):
+            continue          # lo reportó como bug: es lo que queremos
+        block = tools.ac_block(all_specs, ac_id)
+        if not block:
+            continue          # no hay test: ya se cuenta como no cubierto
+        if not asserts_lo_que_pide(criteria_txt[idx - 1], block):
+            fail(f"{ac_id} falló en una corrida y terminó en verde sin verificar "
+                 f"el status que pide el criterio. §4 prohibición 1: si el código "
+                 f"no cumple, es suspected_bug (`it.failing`), no un assert para "
+                 f"aflojar.\n    AC: {criteria_txt[idx - 1][:160]}")
+
     criteria = output.get("criteria") or []
     total_ac = len(criteria) or len(covered)
     coverage = []
@@ -200,7 +234,7 @@ def main() -> int:
         text = criteria[i - 1] if i <= len(criteria) else ""
         hit = ac_id in covered
         motivo = ""
-        if hit and text and not asserts_lo_que_pide(text, test_block(all_specs, ac_id)):
+        if hit and text and not asserts_lo_que_pide(text, tools.ac_block(all_specs, ac_id)):
             hit, motivo = False, "el test no verifica el status que pide el criterio"
             debilitados.append(ac_id)
         coverage.append({"ac": ac_id, "text": text, "covered": hit,

@@ -17,6 +17,7 @@ Dos invariantes que se validan en código, no en el prompt:
 
 from __future__ import annotations
 
+import hashlib
 import os
 import re
 import shutil
@@ -59,6 +60,46 @@ EXCLUDE_DIRS = {"node_modules", "dist", ".git", ".next", "coverage", "generated"
 
 # "Tests: 0 total" (el filtro descartó todo) y "No tests found" (ningún suite).
 NO_TESTS_RE = re.compile(r"Tests:\s+0 total|No tests found", re.I)
+
+
+# Jest lista cada fallo como "● Describe › [AC-7] nombre del test".
+FAILED_AC_RE = re.compile(r"●[^\n]*?\[(AC-\d+)\]")
+_IT_RE = re.compile(r"^\s*(?:it|test)(?:\.failing)?\s*\(", re.M)
+
+
+def _slice_block(content: str, start: int) -> str:
+    """Del arranque de un it() hasta el siguiente. `write_spec_file` reemplaza
+    el archivo entero, así que comparar bloques es la única forma de ver qué
+    cambió entre iteraciones."""
+    rest = content[start:]
+    nxt = _IT_RE.search(rest)
+    return rest[:nxt.start()] if nxt else rest
+
+
+def ac_block(content: str, ac_id: str) -> str:
+    """El cuerpo del `it('[AC-n] ...')`, vacío si no está."""
+    m = re.search(rf"^\s*(?:it|test)(?:\.failing)?\s*\(\s*['\"`]\s*\[{ac_id}\]",
+                  content, re.M)
+    return _slice_block(content, m.end()) if m else ""
+
+
+def failing_blocks(content: str) -> list[dict]:
+    """Nombre y huella de cada `it.failing(...)` (plan §4, regla 2).
+
+    El plan pide guardar el bloque "verbatim"; el código guardaba solo el
+    nombre, así que se podía conservar el `it.failing(...)` y vaciarle el
+    cuerpo. La huella cierra eso.
+
+    Se normalizan los espacios antes de hashear: un reindentado no cambia lo
+    que el test afirma, y hacerlo abortar sería un falso positivo.
+    """
+    out = []
+    for m in re.finditer(r"^\s*(?:it|test)\.failing\s*\(\s*(['\"`])(.+?)\1",
+                         content, re.M):
+        body = _slice_block(content, m.end())
+        out.append({"name": m.group(2),
+                    "sha": hashlib.sha1(" ".join(body.split()).encode()).hexdigest()[:12]})
+    return out
 
 
 @dataclass
@@ -184,6 +225,11 @@ class Toolbox:
             return ToolResult(False, f"no se pudo ejecutar {TEST_CMD!r} en {self.service}")
 
         combined = (proc.stdout or "") + "\n" + (proc.stderr or "")
+        # Se extrae ANTES del recorte: si el fallo quedó fuera de los últimos
+        # 8 KB, igual sabemos que ese AC falló. Es el dato que le faltaba al
+        # validador para exigir que un AC que falló no termine en verde con el
+        # assert aflojado (§4, prohibición 1).
+        failed_acs = sorted(set(FAILED_AC_RE.findall(combined)))
         # La cola de Jest es donde están los fallos y el resumen; el head es ruido.
         if len(combined) > MAX_TEST_OUTPUT:
             combined = "[...recortado...]\n" + combined[-MAX_TEST_OUTPUT:]
@@ -203,5 +249,5 @@ class Toolbox:
         return ToolResult(
             proc.returncode == 0,
             f"exit code: {proc.returncode} — {verdict}\n\n{combined.strip()}",
-            {"exit_code": proc.returncode},
+            {"exit_code": proc.returncode, "failed_acs": failed_acs},
         )
