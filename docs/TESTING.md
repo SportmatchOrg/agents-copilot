@@ -199,7 +199,7 @@ Marcá cada uno cuando lo veas funcionar. La columna "Cómo dispararlo" incluye 
 | Síntoma | Causa probable | Solución |
 |---------|----------------|----------|
 | Workflow falla en el step de IA | `LLM_API_KEY` inválida, o el output dice "ERROR LLM: ..." | Revisá el secret; el mensaje de error crudo del proveedor aparece en los logs del run (`gh run view --log`) |
-| "ERROR LLM: model not found" | Nombre de modelo desactualizado | Cambiá la variable `LLM_MODEL` (ej. `gemini-2.5-flash` → el modelo Gemini vigente) |
+| "ERROR LLM: model not found" | Nombre de modelo desactualizado | En OpenRouter usá `LLM_MODEL=openrouter/free`: el router mantiene la inferencia gratuita aunque cambie el catálogo. `llm.sh` también lo prueba automáticamente como fallback de modelos `:free` retirados. Para otros proveedores, actualizá `LLM_MODEL`. |
 | Rate limit del proveedor | Muchas corridas seguidas en el free tier | Esperá unos minutos; el volumen real (2 devs) no lo alcanza. O cambiá de proveedor con `LLM_BASE_URL`/`LLM_MODEL` |
 | "Resource not accessible" al comentar/crear issue | Faltan permisos en el workflow | Confirmá el bloque `permissions:` (pull-requests/issues: write) |
 | No llega nada a Discord | Webhook mal cargado | Son 3 secrets distintos (`DISCORD_WEBHOOK_QA`, `_PLANNING`, `_PROGRESS`) enrutados por canal — confirmá cuál usa el workflow que estás probando y reejecutá `gh secret set` sobre ese; probá el webhook con un `curl` manual |

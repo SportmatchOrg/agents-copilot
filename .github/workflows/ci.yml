@@ -26,6 +26,9 @@ jobs:
       - name: Tests del test agent
         run: python3 -m unittest discover -s .github/scripts/test-agent -p 'test_*.py' -v
 
+      - name: Tests del cliente LLM y sus fallbacks
+        run: python3 .github/scripts/test_llm.py -v
+
   wrappers:
     runs-on: ubuntu-latest
     steps:
