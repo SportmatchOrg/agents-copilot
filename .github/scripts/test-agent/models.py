@@ -28,18 +28,23 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "qa-review"))
 import llm_client  # noqa: E402
 from llm_client import LLMError  # noqa: E402
 
-# Default del 2026-08-27, verificado contra openrouter.ai/api/v1/models.
+# Default del 2026-09-09, verificado contra openrouter.ai/api/v1/models.
 # Los modelos free aparecen y desaparecen: esto es un default, no una constante.
 # Se pisa con LLM_MODEL_CHAIN (coma-separada).
-# Reordenada con datos de corridas reales (2026-08-27), como pide §11 del plan:
-# glm-5.2 devolvió 429 en las dos corridas (cuota agotada) y minimax-m3 devolvió
-# JSON inválido dos veces seguidas en ambas. Nemotron hizo el 100% del trabajo
-# útil, así que pasa a primario: arrancar por dos modelos que fallan cuesta ~90s
-# de reintentos antes de la primera iteración productiva.
+#
+# Una entrada muerta no es gratis: en SPO-197 glm-5.2:free y minimax-m3:free ya
+# no existían ("This model is unavailable for free"), así que el 404 del primero
+# encadenó los dos y cayó al router en una sola iteración. El modelo del router
+# no traía el historial útil y llamó `finish` con los tests en rojo. Un fallback
+# que no existe convierte un mal turno del primario en fin de corrida.
+#
+# Se prefieren modelos con `structured_outputs`: el turno se pide con
+# response_format json_object y el modo degradado (sin él) es justo el que
+# devuelve JSON sin `action`.
 DEFAULT_CHAIN = [
     "nvidia/nemotron-3-super-120b-a12b:free",   # el único que produjo specs válidos
-    "z-ai/glm-5.2:free",                        # mejor sobre el papel; vuelve cuando reponga cuota
-    "minimax/minimax-m3:free",                  # structured_outputs pero JSON poco confiable
+    "nex-agi/nex-n2.5-pro:free",                # structured_outputs, 262k
+    "dots-studio/dots-3-note-preview:free",     # structured_outputs, 512k
     "openrouter/free",                          # router: último recurso, no determinístico
 ]
 

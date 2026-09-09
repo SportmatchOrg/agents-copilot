@@ -290,25 +290,40 @@ class Toolbox:
         # en el compile por algo que al agente nunca se le mostró — un
         # `possibly null`, un `prisma.$use` que ya no existe en Prisma 7.
         #
-        # Solo si Jest pasó: con tests en rojo el agente ya tiene qué arreglar,
-        # y tsc cuesta ~20s que no vale la pena pagar ahí.
-        if proc.returncode == 0:
-            tsc = subprocess.run(
-                ["npx", "tsc", "--noEmit", "-p", "tsconfig.json"],
-                cwd=self.service, capture_output=True, text=True,
-                timeout=TEST_TIMEOUT)
-            if tsc.returncode != 0:
-                errores = (tsc.stdout + tsc.stderr).strip()[-2000:]
+        # Antes esto corría SOLO con Jest en verde, para ahorrar los ~20s de tsc
+        # cuando el agente ya tenía rojo que arreglar. SPO-197 mostró que ese
+        # ahorro es el que cuesta la corrida: los tests estaban en rojo, ts-jest
+        # reportó los imports rotos como fallos difusos de runtime, el agente
+        # adivinó mal cuatro iteraciones seguidas y el validador lo mató con
+        # cuatro TS2305/2307/2459 exactos que nunca vio. Los 20s se pagan
+        # siempre: son más baratos que una iteración a ciegas.
+        tsc = subprocess.run(
+            ["npx", "tsc", "--noEmit", "-p", "tsconfig.json"],
+            cwd=self.service, capture_output=True, text=True,
+            timeout=TEST_TIMEOUT)
+        if tsc.returncode != 0:
+            errores = (tsc.stdout + tsc.stderr).strip()[-2000:]
+            if proc.returncode == 0:
                 return ToolResult(False, (
                     "los tests pasan PERO el spec no compila, y el validador "
                     "aborta la entrega si no compila. Arreglá esto:\n\n"
                     + errores), {"exit_code": 0, "failed_acs": failed_acs,
                                  "tsc": False})
+            # Rojo Y sin compilar: el compile va PRIMERO. Un import roto explica
+            # los fallos de abajo, y arreglar el síntoma en Jest no sirve de nada
+            # si el validador va a abortar igual.
+            return ToolResult(False, (
+                f"exit code: {proc.returncode} — HAY TESTS FALLANDO, y además el "
+                f"spec NO COMPILA. Arreglá primero el compile (el validador "
+                f"aborta la entrega si no compila):\n\n{errores}\n\n"
+                f"--- salida de los tests ---\n{combined.strip()}"),
+                {"exit_code": proc.returncode, "failed_acs": failed_acs,
+                 "tsc": False, "marcas_de_mas": marcas_de_mas(combined)})
 
         verdict = "TODOS LOS TESTS PASARON" if proc.returncode == 0 else "HAY TESTS FALLANDO"
         return ToolResult(
             proc.returncode == 0,
             f"exit code: {proc.returncode} — {verdict}\n\n{combined.strip()}",
             {"exit_code": proc.returncode, "failed_acs": failed_acs,
-             "marcas_de_mas": marcas_de_mas(combined)},
+             "tsc": True, "marcas_de_mas": marcas_de_mas(combined)},
         )

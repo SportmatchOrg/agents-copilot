@@ -167,10 +167,26 @@ class OraculoCompilaTest(unittest.TestCase):
         self.fake(jest_rc=0, tsc_rc=0)
         self.assertTrue(self.box.run_tests().ok)
 
-    def test_con_jest_rojo_no_se_paga_el_tsc(self):
+    def test_con_jest_rojo_igual_se_muestran_los_errores_de_compile(self):
+        """SPO-197: el tsc corría solo con Jest en verde. Los tests estaban en
+        rojo, el agente nunca vio los TS2305/2307 de sus imports rotos, adivinó
+        mal cuatro iteraciones y el validador lo mató con esos mismos errores."""
+        self.fake(jest_rc=1, tsc_rc=1)
+        r = self.box.run_tests()
+        self.assertFalse(r.ok)
+        self.assertIn("npx", self.cmds)
+        self.assertIn("NO COMPILA", r.output)
+        self.assertIn("TS2339", r.output)
+        # El rojo de Jest sigue estando: el compile va primero, no en lugar de.
+        self.assertIn("3 passed", r.output)
+        self.assertFalse(r.meta["tsc"])
+
+    def test_con_jest_rojo_y_tsc_verde_solo_se_reporta_el_rojo(self):
         self.fake(jest_rc=1, tsc_rc=0)
-        self.assertFalse(self.box.run_tests().ok)
-        self.assertNotIn("npx", self.cmds)
+        r = self.box.run_tests()
+        self.assertFalse(r.ok)
+        self.assertNotIn("NO COMPILA", r.output)
+        self.assertTrue(r.meta["tsc"])
 
 
 class SearchSinRipgrepTest(unittest.TestCase):
