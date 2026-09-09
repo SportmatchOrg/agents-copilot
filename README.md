@@ -118,7 +118,7 @@ Con `LINEAR_API_KEY` configurado, `.github/scripts/linear.sh` hace más que leer
 
 Esto depende de que la integración nativa GitHub↔Linear esté conectada en el workspace (Linear → Settings → Integrations → GitHub) para que las ramas/PRs usen esa convención de nombres.
 
-> **Decisión de diseño:** el traductor a negocio (agente 3) también detecta cuando un PR "no mapea a ningún RF", pero **no** crea un ticket de seguimiento en Linear — esa responsabilidad es exclusiva del DoD checker (arriba). Ambos workflows disparan con los mismos eventos de PR; si los dos crearan tickets, un mismo PR huérfano generaría dos tickets duplicados. El traductor se queda solo con el comentario de advertencia en el PR.
+> **Decisión de diseño:** la trazabilidad con el RF es responsabilidad **exclusiva** del DoD checker (arriba), que es quien crea el ticket de seguimiento si el PR no referencia ninguno. El traductor a negocio (agente 3) no tiene sección de RF: su comentario son 3 secciones cortas (qué hace, riesgo, los 3 checks más importantes) pensadas para leerse en una pantalla. Ambos workflows disparan con los mismos eventos de PR, así que duplicar ahí el análisis de RF solo alargaba el comentario que menos tiempo tiene el PM para leer.
 
 ### Agente 5.1 — Definition of Ready (`dor-readiness.yml` + chat mode)
 

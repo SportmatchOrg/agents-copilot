@@ -15,7 +15,7 @@ Los agentes de IA **revisan, verifican y reportan**; no mergean código de forma
 
 - **Trazabilidad:** todo trabajo se asocia a un RF (RF-01…RF-06). Commits: `tipo(RF-xx): mensaje`. Ramas: `feature/RF-xx-desc`, `fix/desc`. PRs con el ID en el título.
 - **Branches:** `main` = entrega, `dev` = integración. Un PR por historia.
-- **Definition of Done:** PR mergeada a `dev`, CI verde (build/lint/typecheck), doc actualizada, deploy a staging, todos los AC del RF cumplidos.
+- **Definition of Done:** todos los AC del RF cumplidos, doc actualizada si aplica, sin deuda nueva. (El CI verde lo garantiza la branch protection, no la DoD.)
 
 ## Guía para el code review de Copilot (agente "Code Reviewer")
 

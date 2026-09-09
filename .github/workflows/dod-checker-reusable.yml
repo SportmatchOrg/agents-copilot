@@ -28,7 +28,6 @@ on:
 permissions:
   contents: read
   pull-requests: write
-  checks: read
 
 jobs:
   dod-checker:
@@ -52,13 +51,12 @@ jobs:
           path: _agents-copilot
           persist-credentials: false
 
-      - name: Recolectar estado del PR (diff, checks, título)
+      - name: Recolectar estado del PR (diff, título)
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PR: ${{ github.event.pull_request.number }}
         run: |
           gh pr view "$PR" --json title,headRefName,mergeable,state > meta.json
-          gh pr checks "$PR" > checks.txt 2>/dev/null || echo "(sin checks de CI todavía)" > checks.txt
           gh pr diff "$PR" > diff.txt || echo "(sin diff)" > diff.txt
 
       - name: Buscar el ticket de Linear vinculado a la rama
@@ -78,14 +76,13 @@ jobs:
         run: |
           {
             echo "Sos el DoD Checker de SportMatch. Verificá la Definition of Done de este PR (AGENTS.md §6) con la evidencia de abajo. NO cierres nada: reportás."
-            echo "Criterios: 1) PR mergeada a dev (en un PR abierto => marcá ⏳ PENDIENTE hasta merge), 2) Tests verdes en CI (usá los checks), 3) Criterios de aceptación cumplidos (es el punto clave: si hay un TICKET DE LINEAR abajo, sus campos title/description son la fuente de verdad de los AC; si viene vacío, deducí el RF del título/rama contra AGENTS.md §2 y avisá que es una inferencia), 4) Doc actualizada si aplica, 5) Deploy a staging (⏳ PENDIENTE si no hay evidencia), 6) Sin deuda nueva (TODOs sin ticket, código muerto)."
-            echo "Salida: tabla por criterio con ✅/❌/⏳/⚪N-A y evidencia, + veredicto final (LISTO PARA CERRAR / NO CUMPLE DoD + qué falta). Español, breve."
+            echo "Criterios (son 3, no inventes más): 1) Criterios de aceptación cumplidos — es el punto clave: si hay un TICKET DE LINEAR abajo, sus campos title/description son la fuente de verdad de los AC; si viene vacío, deducí el RF del título/rama contra AGENTS.md §2 y avisá que es una inferencia. 2) Doc actualizada si aplica (¿tocó setup, API o convenciones?). 3) Sin deuda nueva (TODOs sin ticket, código muerto, tests skippeados)."
+            echo "NO evalúes el CI, el merge a dev ni el deploy: los garantiza la branch protection del repo y están fuera de la DoD."
+            echo "Salida: tabla de 3 filas con ✅/❌/⚪N-A y evidencia concreta, + veredicto final (LISTO PARA CERRAR / NO CUMPLE DoD + qué falta). Español, breve."
             echo ""
             echo "=== META ==="; cat meta.json
             echo ""
             echo "=== TICKET DE LINEAR VINCULADO ==="; cat linear_issue.json
-            echo ""
-            echo "=== CHECKS CI ==="; cat checks.txt
             echo ""
             echo "=== DIFF ==="; head -c 60000 diff.txt
           } > prompt.txt

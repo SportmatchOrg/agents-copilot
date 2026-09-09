@@ -93,11 +93,13 @@ Reglas de negocio clave: cupos, aprobación manual de solicitudes por el organiz
 - Tipos: `feat`, `fix`, `chore`, `docs`, `test`, `refactor`.
 
 **Definition of Done** (verificada por el agente `dod-checker`)
-- PR mergeada a `dev`
-- Tests verdes en CI (build, lint, typecheck)
-- Documentación actualizada si aplica
-- Deploy a staging exitoso
 - Todos los criterios de aceptación del RF cumplidos
+- Documentación actualizada si aplica
+- Sin deuda nueva (TODOs sin ticket, código comentado, tests skippeados)
+
+> El CI verde y el merge a `dev` no están en la DoD porque no los verifica el
+> agente: los garantiza la branch protection del repo, que no deja mergear en
+> rojo. La DoD es lo que hay que revisar *además* de que el CI pase.
 
 **Naming / estilo de código**
 - **Lenguaje:** TypeScript en front y back (nada de `any` sin justificar; aprovechar el tipado que da Prisma).

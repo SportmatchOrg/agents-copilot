@@ -149,13 +149,13 @@ Marcá cada uno cuando lo veas funcionar. La columna "Cómo dispararlo" incluye 
   git add . && git commit -m "feat(RF-05): solicitar unirse a partido" && git push -u origin feature/RF-05-solicitudes
   gh pr create --base dev --title "RF-05: sistema de solicitudes" --body "Implementa solicitar unirse."
   ```
-- **Qué deberías ver:** en ~1-2 min aparece un **comentario en el PR** titulado "Resumen para negocio (IA)" con las 4 secciones (qué hace, historia RF-05, riesgo, qué probar) + aviso en Discord.
+- **Qué deberías ver:** en ~1-2 min aparece un **comentario en el PR** titulado "Resumen para negocio (IA)" con las **3 secciones** (qué hace, riesgo, qué probar) — las dos primeras de máximo 3 líneas y la última con exactamente 3 checks — + aviso en Discord.
 - **Verificar:** `gh pr view --comments` y Discord.
 - [ ] Pasó
 
 ### ✅ Test 3 — DoD checker (`dod-checker.yml`, on PR)
 - **Dispara:** el mismo PR del Test 2 (mismo evento).
-- **Qué deberías ver:** otro **comentario en el PR** titulado "Definition of Done — chequeo automático" con la tabla de criterios. "PR mergeada" y "deploy a staging" deben salir ⏳ **PENDIENTE** (correcto: el PR sigue abierto); el resto evaluado.
+- **Qué deberías ver:** otro **comentario en el PR** titulado "Definition of Done — chequeo automático" con la tabla de **3 criterios** (AC del RF, doc, deuda nueva), todos evaluados con evidencia — ninguno debería salir ⏳ por falta de información.
 - **Verificar:** `gh pr view --comments` y Discord.
 - [ ] Pasó
 

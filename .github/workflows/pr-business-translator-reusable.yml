@@ -1,7 +1,7 @@
 name: Traductor de PR a negocio — reusable
 
 # Al abrir/actualizar un PR del repo llamador, traduce el cambio a lenguaje de
-# negocio (qué historia implementa, riesgo, qué probar) y lo postea como
+# negocio (qué hace, riesgo, qué probar) y lo postea como
 # comentario del PR + aviso en Discord.
 #
 # Toda la lógica vive acá. El repo llamador solo necesita un wrapper de
@@ -60,8 +60,9 @@ jobs:
         run: |
           {
             echo "Sos el Traductor de PRs a Negocio de SportMatch. Traducí este PR para alguien que NO lee código (PM/PO). Español, sin jerga."
-            echo "Secciones EXACTAS: 'Qué hace este cambio' (2-3 líneas), 'Historia que implementa' (RF-01..RF-06; si no mapea a ninguno marcá ⚠️ fuera de backlog; decí si cubre todos los AC o parte), 'Riesgo' (bajo/medio/alto + por qué; ojo con auth, datos personales RNF-03 y flujos Must), 'Qué probar antes de aprobar' (checklist en lenguaje de usuario)."
-            echo "Breve, cabe en un comentario."
+            echo "Secciones EXACTAS, son 3 y ninguna más: 1) 'Qué hace este cambio' — máximo 3 líneas. 2) 'Riesgo' — bajo/medio/alto + por qué, máximo 3 líneas; ojo con auth, datos personales RNF-03 y flujos Must. 3) 'Qué probar antes de aprobar' — exactamente los 3 checks MÁS IMPORTANTES, ni uno más, en lenguaje de usuario; si se te ocurren más, elegí los 3 que más probabilidad tienen de encontrar un problema."
+            echo "NO incluyas una sección de historia/RF: de la trazabilidad se encarga el DoD checker."
+            echo "Los límites de líneas son techos duros: si te pasás, cortá. Todo el comentario entra en una pantalla."
             echo ""
             echo "=== META ==="; cat meta.json
             echo ""
