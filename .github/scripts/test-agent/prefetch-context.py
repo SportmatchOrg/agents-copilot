@@ -39,6 +39,12 @@ HARNESS_FILES = [
 EXAMPLE_SPEC = f"{SERVICE_ROOT}/test/partidos.example.e2e-spec.ts"
 SCHEMA = f"{SERVICE_ROOT}/prisma/schema.prisma"
 
+# `export const X`, `export async function X(`, `export interface X`, etc.
+EXPORT_RE = re.compile(
+    r"^export\s+(?:declare\s+)?(?:async\s+)?"
+    r"(?:function|const|let|var|class|interface|type|enum)\s+"
+    r"([A-Za-z_$][\w$]*)", re.M)
+
 # Los tickets traen una guía de implementación numerada ANTES de los AC.
 # Sin recortar a la sección, esa guía se cuela como si fueran criterios: en
 # SPO-168 se comía los 12 lugares y no entraba un solo AC real.
@@ -60,6 +66,39 @@ def read(repo: Path, rel: str, limit: int = 20_000) -> str | None:
     if not path.is_file():
         return None
     return path.read_bytes()[:limit].decode("utf-8", "replace")
+
+
+def import_contract(repo: Path) -> str | None:
+    """Qué se importa, y de qué archivo exacto.
+
+    El contenido completo del harness ya va en el contexto, y no alcanzó: en
+    SPO-197 el agente lo tenía servido, igual importó TEST_USER y OTHER_USER de
+    `setup-e2e` (viven en `fixtures`), y murió con TS2459/TS2305 en las dos
+    corridas. Es entendible: `setup-e2e.ts` IMPORTA TEST_USER, así que el
+    símbolo aparece en ese archivo — solo que no lo re-exporta. Leer 250 líneas
+    de dos archivos y deducir la frontera es justo lo que el modelo hace mal.
+    Este bloque lo dice, sin que haya que deducirlo.
+    """
+    lines = []
+    for rel in HARNESS_FILES:
+        content = read(repo, rel)
+        if not content:
+            continue
+        names = EXPORT_RE.findall(content)
+        if names:
+            module = "./" + Path(rel).stem
+            lines.append(f"  de '{module}': {', '.join(names)}")
+    if not lines:
+        return None
+    return (
+        "=== CONTRATO DE IMPORTS DEL HARNESS (verificado, no lo deduzcas) ===\n"
+        "Estos son los ÚNICOS símbolos exportados, y desde el módulo exacto.\n"
+        "Importar uno del archivo equivocado no compila, y el validador aborta\n"
+        "la entrega si no compila.\n"
+        + "\n".join(lines)
+        + f"\n\nEl spec vive en {SERVICE_ROOT}/test/, así que el código de la app\n"
+        f"es '../src/...' — UN nivel, no dos."
+    )
 
 
 def module_block(repo: Path, module_rel: str) -> str:
@@ -135,6 +174,9 @@ def main() -> int:
         module_block(repo, module_rel),
         f"=== {SCHEMA} ===\n{read(repo, SCHEMA) or '(no encontrado)'}",
     ]
+    contract = import_contract(repo)
+    if contract:
+        blocks.append(contract)
     for rel in HARNESS_FILES:
         content = read(repo, rel)
         if content:

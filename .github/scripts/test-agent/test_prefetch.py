@@ -12,6 +12,7 @@ Uso:  python3 -m unittest discover -s .github/scripts/test-agent -p 'test_*.py'
 from __future__ import annotations
 
 import importlib.util
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -69,3 +70,48 @@ class CriteriosTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
+
+
+class ContratoDeImportsTest(unittest.TestCase):
+    """SPO-197: el harness completo YA iba en el contexto y no alcanzó. El
+    agente importó TEST_USER y OTHER_USER de `setup-e2e` — viven en `fixtures`
+    — y murió con TS2459/TS2305 en las dos corridas. `setup-e2e.ts` importa
+    TEST_USER, así que el símbolo aparece ahí: la frontera hay que decirla."""
+
+    SETUP = """import { TEST_USER } from './fixtures';
+let currentUser: FirebaseUser = TEST_USER;
+export function setAuthUser(user: FirebaseUser): void {}
+export interface TestContext {}
+export async function createTestApp(): Promise<TestContext> {}
+"""
+    FIXTURES = """export const TEST_USER: FirebaseUser = {};
+export const OTHER_USER: FirebaseUser = {};
+export async function seedBaseline(prisma: PrismaService) {}
+"""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.repo = Path(self.tmp.name)
+        test_dir = self.repo / pf.SERVICE_ROOT / "test"
+        test_dir.mkdir(parents=True)
+        (test_dir / "setup-e2e.ts").write_text(self.SETUP)
+        (test_dir / "fixtures.ts").write_text(self.FIXTURES)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_atribuye_cada_simbolo_a_su_archivo(self):
+        out = pf.import_contract(self.repo)
+        setup, fixtures = out.split("de './fixtures':")
+        # Lo que mató las dos corridas: TEST_USER/OTHER_USER van en fixtures.
+        self.assertIn("TEST_USER", fixtures)
+        self.assertIn("OTHER_USER", fixtures)
+        self.assertNotIn("TEST_USER", setup.split("de './setup-e2e':")[1])
+        self.assertIn("createTestApp", setup)
+
+    def test_avisa_la_profundidad_del_import_de_src(self):
+        self.assertIn("'../src/...'", pf.import_contract(self.repo))
+
+    def test_sin_harness_no_inventa_el_bloque(self):
+        with tempfile.TemporaryDirectory() as empty:
+            self.assertIsNone(pf.import_contract(Path(empty)))

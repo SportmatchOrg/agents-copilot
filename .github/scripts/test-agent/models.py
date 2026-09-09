@@ -14,6 +14,7 @@ Reglas de avance:
   429 / 402  → siguiente modelo (cuota agotada: reintentar no ayuda)
   503 / 5xx  → backoff exponencial sobre el MISMO modelo y recién después avanzar
   JSON malo  → una repregunta; si vuelve a fallar, siguiente modelo
+  cadena agotada por cuota → siguiente API key, y la cadena vuelve a empezar
 """
 
 from __future__ import annotations
@@ -75,11 +76,19 @@ class ChainClient:
         self.max_tokens = max_tokens
         self.timeout = timeout
         self.base_url = os.environ.get("LLM_BASE_URL", "").strip() or DEFAULT_BASE_URL
-        self.key = os.environ.get("LLM_API_KEY", "").strip()
-        if not self.key:
+        self.keys = self._keys_from_env()
+        if not self.keys:
             raise LLMError("Falta LLM_API_KEY. Sin runtime no hay agente.")
+        self.key_index = 0
+        # `free-models-per-day` de OpenRouter se cobra por CUENTA, no por modelo:
+        # cuando pega, los cuatro modelos de la cadena devuelven 429 en ~300ms y
+        # el fallback de modelos no sirve para nada. Pasó en SPO-197, iteración 5
+        # de 15. Lo único que salva esa corrida es otra cuenta.
+        self.quota_hit = False
         self.json_mode = True
         print(f"[models] cadena: {' → '.join(self.chain)}", flush=True)
+        if len(self.keys) > 1:
+            print(f"[models] {len(self.keys)} API keys disponibles", flush=True)
 
     @staticmethod
     def _chain_from_env() -> list[str]:
@@ -90,6 +99,19 @@ class ChainClient:
                 return models
         return list(DEFAULT_CHAIN)
 
+    @staticmethod
+    def _keys_from_env() -> list[str]:
+        """Las keys en orden de uso. La segunda es opcional y suele ser otra
+        cuenta de OpenRouter: el tope free es por cuenta, así que una key de
+        respaldo del MISMO dueño no compra nada."""
+        keys = [os.environ.get(name, "").strip()
+                for name in ("LLM_API_KEY", "LLM_API_KEY_FALLBACK")]
+        return [k for k in keys if k]
+
+    @property
+    def key(self) -> str:
+        return self.keys[self.key_index]
+
     @property
     def model(self) -> str:
         return self.chain[self.index]
@@ -98,15 +120,36 @@ class ChainClient:
         previous = self.model
         self.index += 1
         if self.index >= len(self.chain):
-            raise ChainExhausted(
-                f"Cadena agotada tras {previous} ({reason}). "
-                f"Modelos probados: {', '.join(self.chain)}."
-            )
+            if not self._rotate_key(reason):
+                raise ChainExhausted(
+                    f"Cadena agotada tras {previous} ({reason}). "
+                    f"Modelos probados: {', '.join(self.chain)}."
+                )
         # El json_mode se re-habilita: que un modelo no lo soporte no dice nada
         # del siguiente.
         self.json_mode = True
         print(f"[models] {previous} → {self.model}  (motivo: {reason})",
               file=sys.stderr, flush=True)
+
+    def _rotate_key(self, reason: str) -> bool:
+        """Pasa a la key siguiente y reinicia la cadena. Devuelve False si no
+        hay a dónde ir.
+
+        Solo si en el camino hubo un 402/429: si la cadena murió porque los
+        modelos devuelven JSON roto, otra key produce el mismo JSON roto y se
+        pagan cuatro modelos más de latencia para llegar al mismo lugar.
+        """
+        if not self.quota_hit or self.key_index + 1 >= len(self.keys):
+            return False
+        self.key_index += 1
+        self.index = 0
+        self.quota_hit = False
+        self.json_mode = True
+        # Nunca la key: esto va a un log público de Actions.
+        print(f"[models] cuota agotada ({reason}); paso a la API key "
+              f"#{self.key_index + 1} y reinicio la cadena en {self.model}",
+              file=sys.stderr, flush=True)
+        return True
 
     def ask(self, messages: list[dict], *, label: str = "agent") -> tuple[dict, str]:
         """Devuelve (objeto JSON, modelo que lo produjo).
@@ -142,6 +185,7 @@ class ChainClient:
                     self.json_mode = False
                     continue
                 if status in ADVANCE_NOW:
+                    self.quota_hit = True
                     self._advance(f"HTTP {status} — {msg}")
                     break
                 if status in BACKOFF_FIRST and attempt < MAX_BACKOFF_ATTEMPTS:

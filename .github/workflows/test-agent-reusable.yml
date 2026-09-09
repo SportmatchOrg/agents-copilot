@@ -53,6 +53,13 @@ on:
     secrets:
       LLM_API_KEY:
         required: true
+      LLM_API_KEY_FALLBACK:
+        description: >
+          Opcional. Key de OTRA cuenta de OpenRouter. El tope `free-models-per-day`
+          se cobra por cuenta: cuando pega, los cuatro modelos de la cadena
+          devuelven 429 y el fallback de modelos no sirve. Con esta key la cadena
+          reinicia en la segunda cuenta. Una key más del MISMO dueño no compra nada.
+        required: false
       LINEAR_API_KEY:
         required: false
       AGENTS_REPO_TOKEN:
@@ -143,6 +150,7 @@ jobs:
         id: agent
         env:
           LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
+          LLM_API_KEY_FALLBACK: ${{ secrets.LLM_API_KEY_FALLBACK }}
           LLM_BASE_URL: ${{ vars.LLM_BASE_URL }}
           LLM_MODEL_CHAIN: ${{ inputs.llm_model_chain || vars.LLM_MODEL_CHAIN }}
         run: |

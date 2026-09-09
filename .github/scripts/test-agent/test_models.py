@@ -76,3 +76,64 @@ class ChainAdvanceTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
+
+
+QUOTA = (429, json.dumps({"error": {"message": "Rate limit exceeded: free-models-per-day"}}))
+
+
+class SegundaKeyTest(unittest.TestCase):
+    """SPO-197: `free-models-per-day` es por CUENTA, no por modelo. Los cuatro
+    modelos de la cadena devolvieron 429 en ~300ms y la corrida murió en la
+    iteración 5 de 15. El fallback de modelos no puede nada contra eso: hace
+    falta otra cuenta."""
+
+    def setUp(self):
+        self._post = llm_client._post
+        self._env = {k: os.environ.get(k)
+                     for k in ("LLM_API_KEY", "LLM_API_KEY_FALLBACK")}
+        self.calls: list[tuple[str, str]] = []
+
+    def tearDown(self):
+        llm_client._post = self._post
+        for k, v in self._env.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
+
+    def fake_post(self, bodies):
+        def _fake(url, key, payload, timeout):
+            self.calls.append((key, payload["model"]))
+            return bodies[len(self.calls) - 1]
+        llm_client._post = _fake
+
+    def test_cuota_agotada_pasa_a_la_segunda_key_y_reinicia_la_cadena(self):
+        os.environ["LLM_API_KEY"] = "key-1"
+        os.environ["LLM_API_KEY_FALLBACK"] = "key-2"
+        self.fake_post([QUOTA, QUOTA, reply(ACTION)])
+        client = models.ChainClient(chain=["modelo-a", "modelo-b"])
+        out, _ = client.ask([{"role": "user", "content": "x"}])
+        self.assertEqual(out["action"], "write_spec_file")
+        # La cadena arranca de cero en la segunda cuenta, no sigue en modelo-b.
+        self.assertEqual(self.calls, [("key-1", "modelo-a"),
+                                      ("key-1", "modelo-b"),
+                                      ("key-2", "modelo-a")])
+
+    def test_sin_segunda_key_la_cadena_se_agota(self):
+        os.environ["LLM_API_KEY"] = "key-1"
+        os.environ.pop("LLM_API_KEY_FALLBACK", None)
+        self.fake_post([QUOTA, QUOTA])
+        client = models.ChainClient(chain=["modelo-a", "modelo-b"])
+        with self.assertRaises(models.ChainExhausted):
+            client.ask([{"role": "user", "content": "x"}])
+
+    def test_json_roto_no_gasta_la_segunda_key(self):
+        """Otra cuenta produce el mismo JSON roto: rotar ahí es pagar cuatro
+        modelos más de latencia para llegar al mismo lugar."""
+        os.environ["LLM_API_KEY"] = "key-1"
+        os.environ["LLM_API_KEY_FALLBACK"] = "key-2"
+        self.fake_post([reply("{}")] * 4)
+        client = models.ChainClient(chain=["modelo-a", "modelo-b"])
+        with self.assertRaises(models.ChainExhausted):
+            client.ask([{"role": "user", "content": "x"}])
+        self.assertNotIn("key-2", [k for k, _ in self.calls])
