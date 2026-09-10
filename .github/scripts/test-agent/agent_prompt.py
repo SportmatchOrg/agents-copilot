@@ -128,6 +128,21 @@ comunes son de tipos, no de estilo, y salen de dos lugares:
      let server: Server;                              // import type {{ Server }} from 'http';
      server = ctx.app.getHttpServer() as Server;
 
+LA TRAMPA, y es la que más corridas costó: tipar el body calla al lint pero
+DESTAPA errores de compilación, porque con `strictNullChecks` tanto `.find()`
+como `[0]` devuelven `T | undefined` (TS18048, "possibly undefined"). Si ahí
+volvés a `any`, vuelve el error de lint. Es un círculo y no se sale aflojando
+ninguno de los dos: se sale afirmando con `!`.
+
+     const lista = res.body as {{ id: string; status: string }}[];
+     const mia = lista.find(r => r.id === solicitudId)!;   // `!`, no `as any`
+     expect(mia.status).toBe('ACCEPTED');
+     expect(lista[0]!.id).toBe(solicitudId);               // `[0]` también
+
+Cuando `run_tests` te devuelva errores de compilación Y de lint juntos,
+arreglá los dos en la MISMA escritura. Alternar entre uno y otro es la forma
+más rápida de gastar las iteraciones sin avanzar.
+
 === CONVENCIÓN OBLIGATORIA: [AC-n] ===
 
 Cada `it()` arranca con el identificador del criterio de aceptación:

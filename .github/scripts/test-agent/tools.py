@@ -301,44 +301,43 @@ class Toolbox:
             ["npx", "tsc", "--noEmit", "-p", "tsconfig.json"],
             cwd=self.service, capture_output=True, text=True,
             timeout=TEST_TIMEOUT)
-        if tsc.returncode != 0:
-            errores = (tsc.stdout + tsc.stderr).strip()[-2000:]
-            if proc.returncode == 0:
-                return ToolResult(False, (
-                    "los tests pasan PERO el spec no compila, y el validador "
-                    "aborta la entrega si no compila. Arreglá esto:\n\n"
-                    + errores), {"exit_code": 0, "failed_acs": failed_acs,
-                                 "tsc": False})
-            # Rojo Y sin compilar: el compile va PRIMERO. Un import roto explica
-            # los fallos de abajo, y arreglar el síntoma en Jest no sirve de nada
-            # si el validador va a abortar igual.
-            return ToolResult(False, (
-                f"exit code: {proc.returncode} — HAY TESTS FALLANDO, y además el "
-                f"spec NO COMPILA. Arreglá primero el compile (el validador "
-                f"aborta la entrega si no compila):\n\n{errores}\n\n"
-                f"--- salida de los tests ---\n{combined.strip()}"),
-                {"exit_code": proc.returncode, "failed_acs": failed_acs,
-                 "tsc": False, "marcas_de_mas": marcas_de_mas(combined)})
+        compila = tsc.returncode == 0
 
-        # Tercera vara. El validador aborta si no compila, pero NO lintea — y el
-        # CI del repo sí. En SPO-197 el spec compiló, pasó los tests, se entregó
-        # la PR #61 y `npm run lint` la volteó con 8 errores, todos de acceder a
-        # `res.body` sin tipar. Verde para el agente, rojo para el que la iba a
-        # mergear.
-        #
-        # Se corre después del tsc porque las reglas type-aware necesitan que el
-        # archivo compile: sobre código roto tiran ruido, no señal.
-        #
-        # `npm run lint` del repo NO sirve acá: lleva `--fix` sobre
-        # `{src,apps,libs,test}/**/*.ts` y le tocaría archivos de `src/` que el
-        # agente tiene prohibido escribir. Se invoca eslint derecho, solo sobre
-        # los specs que escribió, sin `--fix`. `--quiet` deja los errores y saca
-        # los warnings: el CI falla por errores, y esa es la vara a copiar.
+        # Las DOS varas se corren y se informan JUNTAS, aunque el compile ya
+        # haya fallado. Antes se cortaba en el tsc para no ensuciar con lint
+        # type-aware sobre código roto — y eso mandó la corrida de SPO-197 a un
+        # ping-pong de 15 iteraciones: el agente tipaba `res.body` para callar
+        # al lint, eso destapaba TS18048 en `.find()`, destipaba para callar al
+        # compile, y volvía el lint. Nunca vio los dos a la vez, así que nunca
+        # pudo arreglar los dos a la vez. El ruido es un costo menor que el
+        # bucle; para eso va la aclaración de abajo.
         lint = self._lint_specs()
-        if lint:
-            return ToolResult(False, lint, {
+
+        if not compila or lint:
+            partes = []
+            if not compila:
+                partes.append("=== NO COMPILA (el validador aborta la entrega "
+                              "si no compila) ===\n"
+                              + (tsc.stdout + tsc.stderr).strip()[-2000:])
+            if lint:
+                partes.append("=== NO PASA EL LINT (el CI del repo corre "
+                              "`npm run lint`; una PR que no lintea no se "
+                              "mergea) ===\n" + lint)
+            if not compila and lint:
+                partes.append(
+                    "Arreglá LAS DOS COSAS en la misma escritura. No alcanza "
+                    "con una: si tipás el body para callar al lint y el acceso "
+                    "queda `possibly undefined`, afirmá con `!` — volver a "
+                    "`any` te devuelve el error de lint. Algunos errores de "
+                    "lint pueden desaparecer solos al arreglar el compile.")
+            cabecera = ("los tests pasan PERO" if proc.returncode == 0 else
+                        f"exit code: {proc.returncode} — HAY TESTS FALLANDO, y además")
+            cuerpo = "\n\n".join(partes)
+            if proc.returncode != 0:
+                cuerpo += f"\n\n--- salida de los tests ---\n{combined.strip()}"
+            return ToolResult(False, f"{cabecera} el spec no pasa:\n\n{cuerpo}", {
                 "exit_code": proc.returncode, "failed_acs": failed_acs,
-                "tsc": True, "eslint": False,
+                "tsc": compila, "eslint": not lint,
                 "marcas_de_mas": marcas_de_mas(combined)})
 
         verdict = "TODOS LOS TESTS PASARON" if proc.returncode == 0 else "HAY TESTS FALLANDO"

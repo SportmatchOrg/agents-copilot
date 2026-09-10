@@ -137,10 +137,14 @@ class OraculoCompilaTest(unittest.TestCase):
         def __init__(self, rc, out=""):
             self.returncode, self.stdout, self.stderr = rc, out, ""
 
+    SPEC = "back/test/join-requests.e2e-spec.ts"
+
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
-        (Path(self.tmp.name) / "back").mkdir()
+        (Path(self.tmp.name) / "back" / "test").mkdir(parents=True)
+        (Path(self.tmp.name) / self.SPEC).write_text("it('[AC-1] x', () => {});")
         self.box = tools.Toolbox(Path(self.tmp.name))
+        self.box.written.append(self.SPEC)
         self.real = tools.subprocess.run
         self.cmds = []
 
@@ -169,6 +173,19 @@ class OraculoCompilaTest(unittest.TestCase):
     def test_jest_verde_y_tsc_verde_si_es_verde(self):
         self.fake(jest_rc=0, tsc_rc=0)
         self.assertTrue(self.box.run_tests().ok)
+
+    def test_compile_y_lint_se_informan_JUNTOS(self):
+        """SPO-197: cortar en el tsc mandó la corrida a un ping-pong de 15
+        iteraciones — tipaba el body para callar al lint, eso destapaba
+        TS18048, destipaba, y volvía el lint. Nunca vio los dos a la vez."""
+        self.fake(jest_rc=0, tsc_rc=1, lint_rc=1)
+        r = self.box.run_tests()
+        self.assertFalse(r.ok)
+        self.assertIn("NO COMPILA", r.output)
+        self.assertIn("NO PASA EL LINT", r.output)
+        self.assertIn("LAS DOS COSAS", r.output)
+        self.assertIn("npx tsc", self.cmds)
+        self.assertIn("npx eslint", self.cmds)
 
     def test_con_jest_rojo_igual_se_muestran_los_errores_de_compile(self):
         """SPO-197: el tsc corría solo con Jest en verde. Los tests estaban en
