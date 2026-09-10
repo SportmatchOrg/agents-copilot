@@ -168,28 +168,37 @@ def main() -> int:
             return 1
         print(f"✅ PR draft creada: {proc.stdout.strip()}")
 
-    asignar(repo, branch)
+    pedir_review(repo, branch)
     avisar_en_linear(args, data, branch)
     return 0
 
 
-def asignar(repo: Path, branch: str) -> None:
-    """La PR queda a nombre de quien disparó la corrida.
+def pedir_review(repo: Path, branch: str) -> None:
+    """Quien disparó la corrida queda como REVIEWER, no como assignee.
 
     Sin esto la PR nace huérfana: nadie recibe notificación y termina siendo
     de nadie. `github.actor` es el que apretó "Run workflow", así que es el
-    dueño razonable por default y no hace falta configurar nada.
+    destinatario razonable por default y no hace falta configurar nada.
+
+    Reviewer y no assignee porque el trabajo que queda es REVISAR: los tests
+    los escribió el agente, y el humano decide si los merge. Un assignee dice
+    "esto es tuyo, hacelo"; acá ya está hecho. Además la PR nace en draft, y
+    una draft con assignee y sin reviewer no aparece en la cola de review de
+    nadie.
+
+    El autor de la PR es el bot (a propósito: no se usa un PAT), así que pedir
+    review al actor nunca es pedirse review a uno mismo.
 
     No es fatal: si el actor no es colaborador del repo, se avisa y sigue.
     """
     actor = os.environ.get("GITHUB_ACTOR", "").strip()
     if not actor or actor.endswith("[bot]"):
         return
-    proc = run(["gh", "pr", "edit", "--add-assignee", actor], repo, check=False)
+    proc = run(["gh", "pr", "edit", "--add-reviewer", actor], repo, check=False)
     if proc.returncode == 0:
-        print(f"   asignada a @{actor}")
+        print(f"   review pedida a @{actor}")
     else:
-        print(f"::warning::no se pudo asignar la PR a @{actor}; queda sin dueño")
+        print(f"::warning::no se pudo pedir review a @{actor}; la PR queda sin revisor")
 
 
 def avisar_en_linear(args, data: dict, branch: str) -> None:
