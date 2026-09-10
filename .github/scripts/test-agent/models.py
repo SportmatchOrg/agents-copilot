@@ -69,7 +69,7 @@ class ChainClient:
     """
 
     def __init__(self, *, chain: list[str] | None = None, temperature: float = 0.1,
-                 max_tokens: int = 8000, timeout: int = 300) -> None:
+                 max_tokens: int = 16000, timeout: int = 300) -> None:
         self.chain = chain or self._chain_from_env()
         self.index = 0
         self.temperature = temperature
@@ -86,6 +86,18 @@ class ChainClient:
         # de 15. Lo único que salva esa corrida es otra cuenta.
         self.quota_hit = False
         self.json_mode = True
+        # Los modelos de la cadena razonan, y el razonamiento se cobra contra
+        # `max_tokens`. En SPO-197 nemotron gastó los 8000 tokens pensando
+        # (19428 chars de `reasoning`) y lo cortaron a mitad del JSON:
+        # `finish_reason='length'` cuatro veces seguidas, con las dos keys, sin
+        # producir una sola acción. Se ataca por los dos lados —menos
+        # razonamiento y más techo— porque bajar el esfuerzo solo no alcanza:
+        # un spec de 300 líneas escapado dentro de un string JSON son varios
+        # miles de tokens por sí solo.
+        #
+        # `reasoning` es la forma portable: los cuatro modelos de la cadena la
+        # declaran, `reasoning_effort` no.
+        self.reasoning = True
         print(f"[models] cadena: {' → '.join(self.chain)}", flush=True)
         if len(self.keys) > 1:
             print(f"[models] {len(self.keys)} API keys disponibles", flush=True)
@@ -125,9 +137,10 @@ class ChainClient:
                     f"Cadena agotada tras {previous} ({reason}). "
                     f"Modelos probados: {', '.join(self.chain)}."
                 )
-        # El json_mode se re-habilita: que un modelo no lo soporte no dice nada
-        # del siguiente.
+        # Se re-habilitan: que un modelo no los soporte no dice nada del
+        # siguiente.
         self.json_mode = True
+        self.reasoning = True
         print(f"[models] {previous} → {self.model}  (motivo: {reason})",
               file=sys.stderr, flush=True)
 
@@ -181,6 +194,15 @@ class ChainClient:
         partes.append(f"content={content[:300]!r}" if content else "content vacío")
         return " · ".join(partes)
 
+    @staticmethod
+    def _truncada(parsed_body: dict) -> bool:
+        """`finish_reason='length'`: la respuesta llegó al tope de tokens."""
+        try:
+            return (parsed_body.get("choices") or [{}])[0].get(
+                "finish_reason") == "length"
+        except (AttributeError, IndexError, TypeError):
+            return False
+
     def ask(self, messages: list[dict], *, label: str = "agent") -> tuple[dict, str]:
         """Devuelve (objeto JSON, modelo que lo produjo).
 
@@ -201,6 +223,8 @@ class ChainClient:
                 }
                 if self.json_mode:
                     payload["response_format"] = {"type": "json_object"}
+                if self.reasoning:
+                    payload["reasoning"] = {"effort": "low"}
 
                 status, body = llm_client._post(
                     self.base_url, self.key, payload, self.timeout)
@@ -209,6 +233,11 @@ class ChainClient:
                     break
 
                 msg = llm_client._error_message(body)
+                if status == 400 and "reasoning" in (body or "") and self.reasoning:
+                    print(f"[{label}] {self.model} no acepta `reasoning`; sin él",
+                          file=sys.stderr)
+                    self.reasoning = False
+                    continue
                 if status == 400 and "response_format" in (body or "") and self.json_mode:
                     print(f"[{label}] {self.model} no soporta JSON mode; sin él",
                           file=sys.stderr)
@@ -263,6 +292,7 @@ class ChainClient:
             except ValueError as e:
                 attempts_json += 1
                 detalle = self._porque(parsed_body, content)
+                truncada = self._truncada(parsed_body)
                 if attempts_json >= 2:
                     self._advance(f"JSON inválido dos veces ({e}) — {detalle}")
                     attempts_json = 0
@@ -270,12 +300,22 @@ class ChainClient:
                     continue
                 print(f"[{label}] JSON inválido ({e}); repregunto una vez "
                       f"— {detalle}", file=sys.stderr)
-                local_messages = local_messages + [
-                    {"role": "assistant", "content": content[:2000]},
-                    {"role": "user", "content":
+                if truncada:
+                    # Repreguntar lo mismo la vuelve a cortar en el mismo lugar.
+                    reclamo = (
+                        "Tu respuesta anterior se CORTÓ por largo: llegaste al "
+                        "tope de tokens antes de cerrar el JSON. Pensá menos y "
+                        "escribí menos: si estás mandando un spec, mandá menos "
+                        "casos en esta escritura y agregá el resto después. "
+                        "Respondé ÚNICAMENTE el objeto JSON, completo y cerrado.")
+                else:
+                    reclamo = (
                         f"Tu respuesta anterior no sirve: {e}. Respondé "
                         f"ÚNICAMENTE el objeto JSON pedido, con `action` en "
                         f"read_file, list_dir, search, write_spec_file, "
                         f"run_tests o finish — sin texto alrededor, sin "
-                        f"markdown y sin backticks."},
+                        f"markdown y sin backticks.")
+                local_messages = local_messages + [
+                    {"role": "assistant", "content": content[:2000]},
+                    {"role": "user", "content": reclamo},
                 ]

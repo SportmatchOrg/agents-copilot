@@ -167,3 +167,58 @@ class DiagnosticoTest(unittest.TestCase):
     def test_body_deforme_no_explota(self):
         for body in ({}, {"choices": []}, {"choices": [None]}, {"choices": "raro"}):
             self.assertIsInstance(models.ChainClient._porque(body, "x"), str)
+
+
+def truncado(content: str) -> tuple[int, str]:
+    return 200, json.dumps({"model": "m", "choices": [
+        {"finish_reason": "length", "message": {"content": content}}]})
+
+
+class RazonamientoYTopeTest(unittest.TestCase):
+    """SPO-197: nemotron gastó los 8000 tokens razonando (19428 chars) y lo
+    cortaron a mitad del JSON — cuatro veces, con las dos keys, 0 iteraciones."""
+
+    def setUp(self):
+        self._post = llm_client._post
+        self.payloads: list[dict] = []
+
+    def tearDown(self):
+        llm_client._post = self._post
+
+    def fake(self, bodies):
+        def _fake(url, key, payload, timeout):
+            self.payloads.append(payload)
+            return bodies[len(self.payloads) - 1]
+        llm_client._post = _fake
+
+    def test_pide_razonamiento_bajo_y_deja_techo_para_el_spec(self):
+        self.fake([reply(ACTION)])
+        models.ChainClient(chain=["m"]).ask([{"role": "user", "content": "x"}])
+        self.assertEqual(self.payloads[0]["reasoning"], {"effort": "low"})
+        self.assertGreaterEqual(self.payloads[0]["max_tokens"], 16000)
+
+    def test_si_el_modelo_rechaza_reasoning_sigue_sin_el(self):
+        rechazo = (400, json.dumps({"error": {"message": "unknown field reasoning"}}))
+        self.fake([rechazo, reply(ACTION)])
+        client = models.ChainClient(chain=["m"])
+        out, _ = client.ask([{"role": "user", "content": "x"}])
+        self.assertEqual(out["action"], "write_spec_file")
+        self.assertNotIn("reasoning", self.payloads[1])   # reintenta sin el campo
+        self.assertEqual(client.index, 0)                 # y sin quemar el modelo
+
+    def test_una_respuesta_cortada_pide_escribir_menos(self):
+        """Repreguntar "respondé solo JSON" a algo que se cortó por tope lo
+        vuelve a cortar en el mismo lugar."""
+        self.fake([truncado('{"action": "write_spec_file", "args": {"cont'),
+                   reply(ACTION)])
+        models.ChainClient(chain=["m"]).ask([{"role": "user", "content": "x"}])
+        reclamo = self.payloads[1]["messages"][-1]["content"]
+        self.assertIn("CORTÓ por largo", reclamo)
+        self.assertIn("menos", reclamo)
+
+    def test_json_roto_sin_truncar_mantiene_el_reclamo_de_siempre(self):
+        self.fake([reply("no soy json"), reply(ACTION)])
+        models.ChainClient(chain=["m"]).ask([{"role": "user", "content": "x"}])
+        reclamo = self.payloads[1]["messages"][-1]["content"]
+        self.assertIn("ÚNICAMENTE el objeto JSON", reclamo)
+        self.assertNotIn("CORTÓ", reclamo)
