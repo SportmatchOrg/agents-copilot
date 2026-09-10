@@ -137,3 +137,33 @@ class SegundaKeyTest(unittest.TestCase):
         with self.assertRaises(models.ChainExhausted):
             client.ask([{"role": "user", "content": "x"}])
         self.assertNotIn("key-2", [k for k, _ in self.calls])
+
+
+class DiagnosticoTest(unittest.TestCase):
+    """SPO-197: nemotron falló cuatro veces con las dos keys y el log decía
+    solo "JSON inválido". Truncado por max_tokens, razonamiento suelto y basura
+    del proveedor se ven iguales desde afuera y se arreglan distinto."""
+
+    def test_truncado_se_reconoce_por_finish_reason(self):
+        body = {"choices": [{"finish_reason": "length",
+                             "message": {"content": '{"action": "wri'}}],
+                "usage": {"completion_tokens": 8000, "total_tokens": 17000}}
+        out = models.ChainClient._porque(body, '{"action": "wri')
+        self.assertIn("finish_reason='length'", out)
+        self.assertIn("8000/17000", out)
+        self.assertIn("action", out)
+
+    def test_razonamiento_sin_content_se_distingue_de_vacio(self):
+        body = {"choices": [{"finish_reason": "stop",
+                             "message": {"content": "", "reasoning": "x" * 4000}}]}
+        self.assertIn("reasoning=4000 chars", models.ChainClient._porque(body))
+        self.assertIn("content vacío", models.ChainClient._porque(body))
+
+    def test_no_vuelca_respuestas_enormes_al_log(self):
+        """El log de Actions es público y esto es salida cruda del modelo."""
+        out = models.ChainClient._porque({}, "y" * 50_000)
+        self.assertLess(len(out), 400)
+
+    def test_body_deforme_no_explota(self):
+        for body in ({}, {"choices": []}, {"choices": [None]}, {"choices": "raro"}):
+            self.assertIsInstance(models.ChainClient._porque(body, "x"), str)

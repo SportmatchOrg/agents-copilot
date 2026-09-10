@@ -151,6 +151,36 @@ class ChainClient:
               file=sys.stderr, flush=True)
         return True
 
+    @staticmethod
+    def _porque(parsed_body: dict, content: str = "") -> str:
+        """Por qué la respuesta no sirvió, con lo que mandó el proveedor.
+
+        Antes se logueaba solo el motivo ("JSON inválido", "respuesta vacía") y
+        eso no alcanza para decidir nada: JSON cortado por `max_tokens`, texto
+        de razonamiento suelto y basura del proveedor se ven idénticos desde
+        afuera, y cada uno se arregla distinto. En SPO-197 nemotron falló así
+        cuatro veces seguidas con las dos keys y no hubo con qué diagnosticarlo.
+
+        `finish_reason=length` es truncado; `reasoning` con `content` vacío es
+        un modelo que se gastó el presupuesto pensando.
+        """
+        try:
+            choice = (parsed_body.get("choices") or [{}])[0]
+            message = choice.get("message") or {}
+        except (AttributeError, IndexError, TypeError):
+            choice, message = {}, {}
+        usage = parsed_body.get("usage") or {}
+        partes = [f"finish_reason={choice.get('finish_reason')!r}"]
+        if usage:
+            partes.append(f"tokens={usage.get('completion_tokens')}"
+                          f"/{usage.get('total_tokens')}")
+        razonamiento = message.get("reasoning") or ""
+        if razonamiento:
+            partes.append(f"reasoning={len(razonamiento)} chars")
+        # Acotado: el log de Actions es público y esto es salida del modelo.
+        partes.append(f"content={content[:300]!r}" if content else "content vacío")
+        return " · ".join(partes)
+
     def ask(self, messages: list[dict], *, label: str = "agent") -> tuple[dict, str]:
         """Devuelve (objeto JSON, modelo que lo produjo).
 
@@ -210,7 +240,7 @@ class ChainClient:
                 # Puede ser el cuerpo de error de un status != 200 que ya avanzó.
                 continue
             if not content or not content.strip():
-                self._advance("respuesta vacía")
+                self._advance(f"respuesta vacía — {self._porque(parsed_body)}")
                 continue
 
             try:
@@ -232,13 +262,14 @@ class ChainClient:
                 return reply, parsed_body.get("model") or self.model
             except ValueError as e:
                 attempts_json += 1
+                detalle = self._porque(parsed_body, content)
                 if attempts_json >= 2:
-                    self._advance(f"JSON inválido dos veces ({e})")
+                    self._advance(f"JSON inválido dos veces ({e}) — {detalle}")
                     attempts_json = 0
                     local_messages = list(messages)
                     continue
-                print(f"[{label}] JSON inválido ({e}); repregunto una vez",
-                      file=sys.stderr)
+                print(f"[{label}] JSON inválido ({e}); repregunto una vez "
+                      f"— {detalle}", file=sys.stderr)
                 local_messages = local_messages + [
                     {"role": "assistant", "content": content[:2000]},
                     {"role": "user", "content":
