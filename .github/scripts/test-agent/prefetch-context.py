@@ -37,6 +37,14 @@ HARNESS_FILES = [
     f"{SERVICE_ROOT}/test/fixtures.ts",
 ]
 EXAMPLE_SPEC = f"{SERVICE_ROOT}/test/partidos.example.e2e-spec.ts"
+# Si el repo destino no trae un spec de ejemplo propio —hoy ninguno lo trae, así
+# que este bloque venía saliendo VACÍO sin avisar: 7 bloques en vez de 8— se usa
+# el spec de humo del harness. Está en este repo, o sea que siempre existe, y es
+# el único archivo que muestra el idioma que el lint del repo destino acepta:
+# `getHttpServer() as Server` en vez de pasarlo crudo. `install-harness.sh` lo
+# copia, lo corre y lo BORRA antes de que el agente arranque, así que sin esto
+# el único ejemplo correcto se destruye justo antes de hacer falta.
+FALLBACK_EXAMPLE = Path(__file__).resolve().parents[3] / "test-harness" / "smoke.e2e-spec.ts"
 SCHEMA = f"{SERVICE_ROOT}/prisma/schema.prisma"
 
 # `export const X`, `export async function X(`, `export interface X`, etc.
@@ -181,12 +189,17 @@ def main() -> int:
         content = read(repo, rel)
         if content:
             blocks.append(f"=== HARNESS (NO SE MODIFICA) — {rel} ===\n{content}")
-    example = read(repo, EXAMPLE_SPEC)
+    example, origen = read(repo, EXAMPLE_SPEC), EXAMPLE_SPEC
+    if not example and FALLBACK_EXAMPLE.is_file():
+        example = FALLBACK_EXAMPLE.read_text(encoding="utf-8")
+        origen = "spec de humo del harness (no está en el repo)"
     if example:
         blocks.append(
-            f"=== SPEC DE EJEMPLO — {EXAMPLE_SPEC} ===\n"
-            f"Referencia de estilo. Está verde. NO lo modifiques: escribí uno "
-            f"nuevo con otro nombre.\n\n{example}")
+            f"=== SPEC DE EJEMPLO — {origen} ===\n"
+            f"Referencia de ESTILO: así se arma un spec que compila y que pasa "
+            f"el lint. Mirá cómo castea `getHttpServer() as Server` una sola "
+            f"vez. NO lo copies como caso de prueba y no lo modifiques: "
+            f"escribí uno nuevo con otro nombre.\n\n{example}")
 
     (ctx_dir / "context.json").write_text(
         json.dumps({"ticket": args.ticket, "rf": rf, "module": module_rel,

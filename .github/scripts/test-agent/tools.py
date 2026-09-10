@@ -320,10 +320,62 @@ class Toolbox:
                 {"exit_code": proc.returncode, "failed_acs": failed_acs,
                  "tsc": False, "marcas_de_mas": marcas_de_mas(combined)})
 
+        # Tercera vara. El validador aborta si no compila, pero NO lintea — y el
+        # CI del repo sí. En SPO-197 el spec compiló, pasó los tests, se entregó
+        # la PR #61 y `npm run lint` la volteó con 8 errores, todos de acceder a
+        # `res.body` sin tipar. Verde para el agente, rojo para el que la iba a
+        # mergear.
+        #
+        # Se corre después del tsc porque las reglas type-aware necesitan que el
+        # archivo compile: sobre código roto tiran ruido, no señal.
+        #
+        # `npm run lint` del repo NO sirve acá: lleva `--fix` sobre
+        # `{src,apps,libs,test}/**/*.ts` y le tocaría archivos de `src/` que el
+        # agente tiene prohibido escribir. Se invoca eslint derecho, solo sobre
+        # los specs que escribió, sin `--fix`. `--quiet` deja los errores y saca
+        # los warnings: el CI falla por errores, y esa es la vara a copiar.
+        lint = self._lint_specs()
+        if lint:
+            return ToolResult(False, lint, {
+                "exit_code": proc.returncode, "failed_acs": failed_acs,
+                "tsc": True, "eslint": False,
+                "marcas_de_mas": marcas_de_mas(combined)})
+
         verdict = "TODOS LOS TESTS PASARON" if proc.returncode == 0 else "HAY TESTS FALLANDO"
         return ToolResult(
             proc.returncode == 0,
             f"exit code: {proc.returncode} — {verdict}\n\n{combined.strip()}",
             {"exit_code": proc.returncode, "failed_acs": failed_acs,
-             "tsc": True, "marcas_de_mas": marcas_de_mas(combined)},
+             "tsc": True, "eslint": True,
+             "marcas_de_mas": marcas_de_mas(combined)},
         )
+
+    def _lint_specs(self) -> str | None:
+        """Los errores de ESLint en los specs del agente, o None si está limpio."""
+        # `self.written` es relativo al repo; eslint corre con cwd=self.service.
+        targets = []
+        for rel in self.written:
+            path = self.repo / rel
+            if path.is_file():
+                targets.append(str(path.relative_to(self.service)))
+        if not targets:
+            return None
+        try:
+            proc = subprocess.run(
+                ["npx", "eslint", *targets, "--quiet", "--no-fix"],
+                cwd=self.service, capture_output=True, text=True,
+                timeout=TEST_TIMEOUT)
+        except (subprocess.TimeoutExpired, FileNotFoundError):
+            # Sin linter no se bloquea la entrega: el CI lo va a decir igual, y
+            # un `npx` que no arranca no es culpa del spec.
+            return None
+        # 0 = limpio, 1 = hay errores de lint. Cualquier otra cosa (2 = config
+        # rota, crash) es un problema de la herramienta, no del spec: bloquear
+        # ahí dejaría al agente sin salida por algo que no puede arreglar.
+        if proc.returncode != 1:
+            return None
+        errores = (proc.stdout + proc.stderr).strip()[-2000:]
+        return ("el spec NO PASA EL LINT, y el CI del repo corre `npm run lint`: "
+                "una PR que no lintea no se puede mergear. Arreglá esto "
+                "(tipá el body de la respuesta, no lo esquives con `any`):\n\n"
+                + errores)

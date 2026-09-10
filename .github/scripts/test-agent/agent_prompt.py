@@ -107,6 +107,27 @@ querés que explote si el fixture no está:
 
 Usá siempre las variantes `...OrThrow`, o afirmá con `!` si ya sabés que existe.
 
+=== ESLINT: EL SPEC TAMBIÉN TIENE QUE LINTEAR ===
+
+`run_tests` corre ESLint sobre tu spec además de los tests, porque el CI del
+repo lo corre y una PR que no lintea no se puede mergear. Los errores más
+comunes son de tipos, no de estilo, y salen de dos lugares:
+
+1. El body de la respuesta es `any`. Tocarle un campo es
+   `no-unsafe-member-access` y llamarle un método es `no-unsafe-call`.
+   Tipá el body antes de usarlo:
+
+     const res = await request(server).get('/partidos').expect(200);
+     const body = res.body as {{ id: string; anotados: number }}[];
+     expect(body[0].anotados).toBe(1);
+
+   NO uses `any` explícito para esquivarlo: cambia un error por otro.
+
+2. `getHttpServer()` devuelve `any`. Casteálo UNA vez y reusá la variable:
+
+     let server: Server;                              // import type {{ Server }} from 'http';
+     server = ctx.app.getHttpServer() as Server;
+
 === CONVENCIÓN OBLIGATORIA: [AC-n] ===
 
 Cada `it()` arranca con el identificador del criterio de aceptación:

@@ -148,11 +148,14 @@ class OraculoCompilaTest(unittest.TestCase):
         tools.subprocess.run = self.real
         self.tmp.cleanup()
 
-    def fake(self, jest_rc, tsc_rc, tsc_out="x.ts(1,1): error TS2339: nope"):
+    def fake(self, jest_rc, tsc_rc, tsc_out="x.ts(1,1): error TS2339: nope",
+             lint_rc=0, lint_out="x.ts:1:1  error  Unsafe member access .id"):
         def _run(cmd, **kw):
-            self.cmds.append(cmd[0])
-            if cmd[0] == "npx":
+            self.cmds.append(cmd[0] if cmd[0] != "npx" else f"npx {cmd[1]}")
+            if cmd[:2] == ["npx", "tsc"]:
                 return self.Fake(tsc_rc, tsc_out)
+            if cmd[:2] == ["npx", "eslint"]:
+                return self.Fake(lint_rc, lint_out)
             return self.Fake(jest_rc, "Tests: 3 passed, 3 total")
         tools.subprocess.run = _run
 
@@ -174,7 +177,7 @@ class OraculoCompilaTest(unittest.TestCase):
         self.fake(jest_rc=1, tsc_rc=1)
         r = self.box.run_tests()
         self.assertFalse(r.ok)
-        self.assertIn("npx", self.cmds)
+        self.assertIn("npx tsc", self.cmds)
         self.assertIn("NO COMPILA", r.output)
         self.assertIn("TS2339", r.output)
         # El rojo de Jest sigue estando: el compile va primero, no en lugar de.
@@ -249,3 +252,75 @@ class SpecRegexTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
+
+
+class OraculoLinteaTest(unittest.TestCase):
+    """SPO-197 / PR #61: el spec compiló, pasó los tests, se entregó — y
+    `npm run lint` del CI la volteó con 8 errores de `res.body` sin tipar.
+    Tercera vara que el agente no veía."""
+
+    class Fake:
+        def __init__(self, rc, out=""):
+            self.returncode, self.stdout, self.stderr = rc, out, ""
+
+    SPEC = "back/test/join-requests.e2e-spec.ts"
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        root = Path(self.tmp.name)
+        (root / "back" / "test").mkdir(parents=True)
+        (root / self.SPEC).write_text("it('[AC-1] x', () => {});")
+        self.box = tools.Toolbox(root)
+        self.box.written.append(self.SPEC)
+        self.real = tools.subprocess.run
+        self.cmds = []
+
+    def tearDown(self):
+        tools.subprocess.run = self.real
+        self.tmp.cleanup()
+
+    def fake(self, lint_rc, lint_out="1:1  error  Unsafe member access .id"):
+        def _run(cmd, **kw):
+            self.cmds.append(cmd)
+            if cmd[:2] == ["npx", "eslint"]:
+                return self.Fake(lint_rc, lint_out)
+            return self.Fake(0, "Tests: 3 passed, 3 total")
+        tools.subprocess.run = _run
+
+    def test_lint_rojo_no_es_verde(self):
+        self.fake(lint_rc=1)
+        r = self.box.run_tests()
+        self.assertFalse(r.ok)
+        self.assertIn("NO PASA EL LINT", r.output)
+        self.assertIn("Unsafe member access", r.output)
+        self.assertFalse(r.meta["eslint"])
+
+    def test_lint_verde_si_es_verde(self):
+        self.fake(lint_rc=0)
+        r = self.box.run_tests()
+        self.assertTrue(r.ok)
+        self.assertTrue(r.meta["eslint"])
+
+    def test_solo_lintea_los_specs_del_agente_y_sin_fix(self):
+        """`npm run lint` del repo lleva --fix sobre src/, que el agente tiene
+        prohibido tocar. Se invoca eslint derecho y acotado."""
+        self.fake(lint_rc=0)
+        self.box.run_tests()
+        eslint = [c for c in self.cmds if c[:2] == ["npx", "eslint"]][0]
+        self.assertIn("test/join-requests.e2e-spec.ts", eslint)
+        self.assertIn("--no-fix", eslint)
+        self.assertNotIn("--fix", eslint[2:])
+        self.assertFalse([a for a in eslint if a.startswith("src")])
+
+    def test_eslint_roto_no_bloquea_al_agente(self):
+        """exit 2 es config rota o crash del linter, no un spec malo. El agente
+        no puede arreglar eso, así que no se lo cuelga."""
+        self.fake(lint_rc=2, lint_out="Error: Cannot find config")
+        r = self.box.run_tests()
+        self.assertTrue(r.ok)
+        self.assertNotIn("NO PASA EL LINT", r.output)
+
+    def test_sin_specs_escritos_no_lintea(self):
+        self.box.written.clear()
+        self.fake(lint_rc=1)
+        self.assertTrue(self.box.run_tests().ok)
