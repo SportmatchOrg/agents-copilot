@@ -83,3 +83,28 @@ class ObservationNudgeTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
+
+
+W_A = {"action": "write_spec_file", "ok": True, "signature": '["write_spec_file", {"a": 1}]'}
+W_B = {"action": "write_spec_file", "ok": True, "signature": '["write_spec_file", {"a": 2}]'}
+AUTO = {"action": "run_tests", "ok": False, "forced": True}
+
+
+class RepiteTest(unittest.TestCase):
+    """Desde que el arnés corre el oráculo solo, entre dos escrituras del modelo
+    queda siempre una entrada `forced` de por medio. Comparar contra
+    `history[-1]` dejaba la detección de bucle muerta, y la corrida 5 terminó
+    justo así: reescribiendo el mismo archivo de 311 líneas."""
+
+    def test_ve_la_repeticion_por_encima_de_la_corrida_automatica(self):
+        self.assertTrue(run_agent._repite([W_A, AUTO], W_A["signature"]))
+
+    def test_dos_escrituras_distintas_no_son_bucle(self):
+        self.assertFalse(run_agent._repite([W_A, AUTO], W_B["signature"]))
+
+    def test_historial_vacio_no_es_bucle(self):
+        self.assertFalse(run_agent._repite([], W_A["signature"]))
+
+    def test_solo_mira_el_ultimo_turno_del_modelo(self):
+        """Repetir algo de hace tres turnos no es un bucle cerrado."""
+        self.assertFalse(run_agent._repite([W_A, AUTO, W_B, AUTO], W_A["signature"]))

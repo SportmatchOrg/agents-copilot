@@ -97,29 +97,15 @@ class ToolboxTest(unittest.TestCase):
     def test_rechaza_contenido_vacio(self):
         self.assertFalse(self.box.write_spec_file("back/test/a.e2e-spec.ts", "  ").ok)
 
-    # --- lectura -----------------------------------------------------------
-
-    def test_lee_dentro_del_repo(self):
-        r = self.box.read_file("back/src/partidos/svc.ts")
-        self.assertTrue(r.ok)
-        self.assertIn("export const x", r.output)
-
-    def test_no_lee_fuera_del_repo(self):
-        self.assertFalse(self.box.read_file("../../../etc/hosts").ok)
-        self.assertFalse(self.box.read_file("/etc/hosts").ok)
-
-    def test_recorta_archivos_grandes(self):
-        big = self.repo / "back" / "grande.ts"
-        big.write_text("a" * (tools.MAX_FILE_BYTES + 5000))
-        r = self.box.read_file("back/grande.ts")
-        self.assertTrue(r.ok)
-        self.assertIn("recortado", r.output)
-
-    def test_list_dir_oculta_node_modules(self):
-        (self.repo / "back" / "node_modules").mkdir()
-        r = self.box.list_dir("back")
-        self.assertTrue(r.ok)
-        self.assertNotIn("node_modules", r.output)
+    def test_no_escribe_fuera_del_repo(self):
+        """`safe_resolve` es la frontera de confianza y sigue viva aunque las
+        acciones de lectura se hayan ido: el path lo elige el modelo."""
+        for ruta in ("../../../etc/cron.d/x.e2e-spec.ts",
+                     "/etc/cron.d/x.e2e-spec.ts",
+                     "back/test/../../../x.e2e-spec.ts"):
+            self.assertFalse(
+                self.box.write_spec_file(ruta, "it('[AC-1] x', () => {});").ok,
+                f"dejó escribir en {ruta!r}")
 
     # --- oráculo -----------------------------------------------------------
 
@@ -207,39 +193,6 @@ class OraculoCompilaTest(unittest.TestCase):
         self.assertFalse(r.ok)
         self.assertNotIn("NO COMPILA", r.output)
         self.assertTrue(r.meta["tsc"])
-
-
-class SearchSinRipgrepTest(unittest.TestCase):
-    """Los runners de GitHub no traen `rg`: en CI esta herramienta estuvo muerta
-    desde el día uno y en SPO-171 mató una corrida por bucle."""
-
-    def setUp(self):
-        self.tmp = tempfile.TemporaryDirectory()
-        repo = Path(self.tmp.name)
-        (repo / "back" / "src").mkdir(parents=True)
-        (repo / "back" / "src" / "a.ts").write_text("export const findById = 1;\n")
-        (repo / "back" / "node_modules").mkdir()
-        (repo / "back" / "node_modules" / "b.ts").write_text("findById ruido\n")
-        self.box = tools.Toolbox(repo)
-        self._which = tools.shutil.which
-        tools.shutil.which = lambda n: None if n == "rg" else self._which(n)
-
-    def tearDown(self):
-        tools.shutil.which = self._which
-        self.tmp.cleanup()
-
-    def test_encuentra_con_grep(self):
-        r = self.box.search("findById")
-        self.assertTrue(r.ok, r.output)
-        self.assertIn("back/src/a.ts", r.output)
-
-    def test_grep_respeta_las_exclusiones(self):
-        self.assertNotIn("node_modules", self.box.search("findById").output)
-
-    def test_sin_coincidencias_no_es_error(self):
-        r = self.box.search("noExisteEnNingunLado")
-        self.assertTrue(r.ok)
-        self.assertIn("Sin coincidencias", r.output)
 
 
 class NoTestsRegexTest(unittest.TestCase):

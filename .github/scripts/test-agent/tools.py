@@ -28,10 +28,7 @@ from pathlib import Path
 SERVICE_ROOT = os.environ.get("SERVICE_ROOT", "back").strip("/")
 TEST_CMD = os.environ.get("TEST_CMD", "npm run test:e2e")
 
-MAX_FILE_BYTES = 40_000
-MAX_MATCHES = 40
 MAX_TEST_OUTPUT = 8_000
-SEARCH_TIMEOUT = 30
 TEST_TIMEOUT = int(os.environ.get("TEST_TIMEOUT_SECONDS", "600"))
 
 # Tope de tamaño por spec (plan §5.6). `write_spec_file` manda el archivo
@@ -56,7 +53,6 @@ SPEC_RE = re.compile(rf"^{re.escape(SERVICE_ROOT)}/test/[A-Za-z0-9._-]+\.e2e-spe
 # prueba de que el oráculo funciona. El agente no lo puede pisar.
 PROTECTED = {f"{SERVICE_ROOT}/test/partidos.example.e2e-spec.ts"}
 
-EXCLUDE_DIRS = {"node_modules", "dist", ".git", ".next", "coverage", "generated"}
 
 # "Tests: 0 total" (el filtro descartó todo) y "No tests found" (ningún suite).
 NO_TESTS_RE = re.compile(r"Tests:\s+0 total|No tests found", re.I)
@@ -158,62 +154,6 @@ class Toolbox:
         self.service = self.repo / SERVICE_ROOT
         self.written: list[str] = []
         self.test_runs = 0
-
-    # --- lectura -----------------------------------------------------------
-
-    def list_dir(self, path: str = "") -> ToolResult:
-        target = safe_resolve(self.repo, path or SERVICE_ROOT)
-        if target is None or not target.is_dir():
-            return ToolResult(False, f"{path!r} no es un directorio del repo")
-        entries = []
-        for item in sorted(target.iterdir()):
-            if item.name in EXCLUDE_DIRS or item.name.startswith("."):
-                continue
-            entries.append(f"{item.name}/" if item.is_dir() else item.name)
-        return ToolResult(True, "\n".join(entries) or "(vacío)")
-
-    def read_file(self, path: str) -> ToolResult:
-        target = safe_resolve(self.repo, path)
-        if target is None or not target.is_file():
-            return ToolResult(False, f"{path!r} no existe o queda fuera del repo")
-        raw = target.read_bytes()[:MAX_FILE_BYTES]
-        text = raw.decode("utf-8", "replace")
-        suffix = "\n[...recortado a 40 KB]" if target.stat().st_size > MAX_FILE_BYTES else ""
-        return ToolResult(True, text + suffix)
-
-    def search(self, term: str) -> ToolResult:
-        if not (term or "").strip():
-            return ToolResult(False, "término vacío")
-        # Los runners de GitHub NO traen ripgrep, así que en CI esta herramienta
-        # estuvo muerta desde el día uno: en SPO-171 el agente la llamó, recibió
-        # "no disponible", repitió la misma acción y el detector de bucle mató la
-        # corrida. Nunca se vio antes porque en local `rg` sí está.
-        # grep está en todos lados y hace lo mismo que necesitamos acá.
-        if shutil.which("rg"):
-            cmd = ["rg", "--line-number", "--no-heading", "--max-count", "5",
-                   "--max-columns", "200"]
-            for d in EXCLUDE_DIRS:
-                cmd += ["-g", f"!{d}/**"]
-            cmd += ["--", term, str(self.service)]
-        else:
-            cmd = ["grep", "-rnI", "--max-count=5"]
-            for d in EXCLUDE_DIRS:
-                cmd += [f"--exclude-dir={d}"]
-            cmd += ["-e", term, str(self.service)]
-        try:
-            proc = subprocess.run(cmd, capture_output=True, text=True,
-                                  timeout=SEARCH_TIMEOUT)
-        except subprocess.TimeoutExpired:
-            return ToolResult(False, "la búsqueda tardó demasiado")
-        lines = proc.stdout.splitlines()
-        if not lines:
-            return ToolResult(True, "Sin coincidencias.")
-        shown = [ln.replace(str(self.repo) + "/", "")[:200]
-                 for ln in lines[:MAX_MATCHES]]
-        extra = f"\n[...{len(lines) - MAX_MATCHES} coincidencias más]" if len(lines) > MAX_MATCHES else ""
-        return ToolResult(True, "\n".join(shown) + extra)
-
-    # --- escritura ---------------------------------------------------------
 
     def write_spec_file(self, path: str, content: str) -> ToolResult:
         rel = (path or "").strip().lstrip("/")

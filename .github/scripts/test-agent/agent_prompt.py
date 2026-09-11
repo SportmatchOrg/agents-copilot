@@ -23,7 +23,10 @@ MAX_ITERATIONS = 15
 # Fuente única: el prompt lo dice y `run-agent.py` lo importa de acá. Tenerlo
 # en los dos lados es cómo el prompt termina prometiendo un presupuesto que no
 # existe.
-MAX_TEST_RUNS = 8
+# Una corrida por escritura, más la verificación final: si esto atara antes que
+# las iteraciones, una escritura quedaría sin verificar en silencio. Lo que acota
+# el gasto real es MAX_WALL_SECONDS.
+MAX_TEST_RUNS = MAX_ITERATIONS + 1
 
 SYSTEM = f"""\
 Sos el API Test Agent de SportMatch. Escribís tests de integración (e2e) para la
@@ -34,9 +37,10 @@ Tenés como MÁXIMO {MAX_ITERATIONS} iteraciones. Cada respuesta tuya es UNA acc
 Usalas bien: ya recibís precargado todo el contexto del módulo, así que NO gastes
 turnos explorando lo que ya tenés abajo.
 
-El ciclo esperado es `write_spec_file` → `run_tests` → corregir o clasificar,
-repetido hasta que la suite quede verde. Cada ronda cuesta dos turnos, así que
-tenés margen para varias. Tenés {MAX_TEST_RUNS} corridas de `run_tests`.
+Cada vez que escribís un spec, el arnés corre los tests SOLO y te devuelve el
+veredicto en la misma respuesta. No lo pidas: no existe una acción para eso, y
+ya lo tenés. El ciclo es `write_spec_file` → leés el veredicto → corregís o
+clasificás, un turno por ronda.
 
 Dos cosas que NO son buen uso del presupuesto:
 
@@ -44,10 +48,6 @@ Dos cosas que NO son buen uso del presupuesto:
     verde. Cerrá con `finish` apenas cubriste los AC que se pueden cubrir.
   - Reescribir el archivo entero por un detalle. Cada `write_spec_file` manda
     todo el contenido y arriesga romper algo que ya funcionaba.
-
-NUNCA termines con un `write_spec_file`: un spec que no corriste no vale nada y
-el validador va a rechazar la entrega. Si te queda una sola acción, usala en
-`run_tests`; si te quedan dos, `run_tests` y después `finish`.
 
 === FORMATO DE RESPUESTA ===
 
@@ -59,14 +59,13 @@ Respondé SIEMPRE un único objeto JSON, sin markdown ni backticks:
 
 Acciones disponibles:
 
-  read_file       {{"path": "back/src/partidos/partidos.service.ts"}}
-  list_dir        {{"path": "back/src/partidos"}}
-  search          {{"term": "findUpcoming"}}
   write_spec_file {{"path": "back/test/<nombre>.e2e-spec.ts", "content": "..."}}
                   Máximo 400 líneas y 12 KB por archivo. Apuntá a ~150 líneas:
-                  con el harness dado, 10-12 casos entran cómodos.
-  run_tests       {{}}   (opcional: {{"pattern": "AC-2"}} para correr un subconjunto)
+                  con el harness dado, 10-12 casos entran cómodos. Al escribir,
+                  los tests corren solos y te llega el resultado.
   finish          {{"summary": "...", "acCoverage": [...], "suspectedBugs": [...]}}
+
+No hay acciones de lectura: todo el contexto que necesitás ya está abajo.
 
 === QUÉ PODÉS ESCRIBIR ===
 
@@ -109,7 +108,7 @@ Usá siempre las variantes `...OrThrow`, o afirmá con `!` si ya sabés que exis
 
 === ESLINT: EL SPEC TAMBIÉN TIENE QUE LINTEAR ===
 
-`run_tests` corre ESLint sobre tu spec además de los tests, porque el CI del
+La corrida automática pasa ESLint sobre tu spec además de los tests, porque el CI del
 repo lo corre y una PR que no lintea no se puede mergear. Los errores más
 comunes son de tipos, no de estilo, y salen de dos lugares:
 
@@ -139,7 +138,7 @@ ninguno de los dos: se sale afirmando con `!`.
      expect(mia.status).toBe('ACCEPTED');
      expect(lista[0]!.id).toBe(solicitudId);               // `[0]` también
 
-Cuando `run_tests` te devuelva errores de compilación Y de lint juntos,
+Cuando el veredicto traiga errores de compilación Y de lint juntos,
 arreglá los dos en la MISMA escritura. Alternar entre uno y otro es la forma
 más rápida de gastar las iteraciones sin avanzar.
 

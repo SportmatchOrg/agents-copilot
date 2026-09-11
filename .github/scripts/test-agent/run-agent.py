@@ -42,7 +42,6 @@ MAX_WALL_SECONDS = int(1800)
 # para que no se vuelva un loop infinito por la puerta de atrás.
 MAX_FREE_RETRIES = 2
 
-READ_ACTIONS = {"read_file", "list_dir", "search"}
 
 
 # La política de §4 está en el SYSTEM, pero cuando el modelo la necesita quedó
@@ -70,6 +69,19 @@ está prohibido. Un suspected_bug legítimo vale más que diez tests verdes.
 
 Un `it.failing` PASA cuando falla: la suite queda en verde y el bug queda en el
 reporte. Es la forma de cerrar, no un fracaso."""
+
+
+def _repite(history: list[dict], signature: str) -> bool:
+    """¿El turno anterior DEL MODELO fue idéntico a este?
+
+    Mira el último turno no-`forced`, no el último del historial. Desde que el
+    arnés corre el oráculo solo, entre dos escrituras del modelo queda siempre
+    una entrada `forced` de por medio — y esa no tiene `signature`, así que
+    comparar contra `history[-1]` dejaba la detección de bucle muerta. La
+    corrida 5 terminó justo así, reescribiendo el mismo archivo de 311 líneas.
+    """
+    previo = next((e for e in reversed(history) if not e.get("forced")), None)
+    return bool(previo) and previo.get("signature") == signature
 
 
 def observation(name: str, result: tools_mod.ToolResult, nudge: str = "") -> str:
@@ -152,23 +164,23 @@ def main() -> int:
         # consumió el presupuesto entero. Con dos idénticas seguidas alcanza.
         signature = json.dumps([action, call_args], sort_keys=True)
         entry["signature"] = signature
-        if history and history[-1].get("signature") == signature:
+        if _repite(history, signature):
             print("[loop] misma acción repetida; corte por bucle", flush=True)
             outcome = "loop"
             history.append(entry)
             break
 
-        if action == "run_tests" and toolbox.test_runs >= MAX_TEST_RUNS:
-            result = tools_mod.ToolResult(
-                False, f"ya usaste las {MAX_TEST_RUNS} corridas de tests "
-                       f"disponibles. Terminá con `finish`.")
-        elif action == "read_file":
-            result = toolbox.read_file(str(call_args.get("path", "")))
-        elif action == "list_dir":
-            result = toolbox.list_dir(str(call_args.get("path", "")))
-        elif action == "search":
-            result = toolbox.search(str(call_args.get("term", "")))
-        elif action == "write_spec_file":
+        # Corrida automática del oráculo. El modelo NO la pide: medido sobre
+        # las corridas 5 y 6, el 45% de los turnos eran un `run_tests` y NINGUNO
+        # vino después de algo que no fuera un write. No era una decisión, era
+        # un reflejo que costaba una llamada entera —con su deadline de 200s y
+        # su chance de volver con JSON roto. En el free tier cada turno es un
+        # billete de lotería a que el proveedor falle: sacar la mitad de los
+        # turnos saca la mitad de la exposición sin pedirle al modelo nada
+        # distinto de lo que ya hace bien. Mismo criterio que la verificación
+        # final, que ya lo hacía por esta razón.
+        auto = None
+        if action == "write_spec_file":
             result = toolbox.write_spec_file(
                 str(call_args.get("path", "")), str(call_args.get("content", "")))
             if result.ok:
@@ -178,14 +190,17 @@ def main() -> int:
                     "failing_blocks": tools_mod.failing_blocks(
                         str(call_args.get("content", ""))),
                 })
-        elif action == "run_tests":
-            result = toolbox.run_tests(str(call_args.get("pattern", "")))
-            failed_acs |= set((result.meta or {}).get("failed_acs") or [])
-            marcas_de_mas |= set((result.meta or {}).get("marcas_de_mas") or [])
+                auto = toolbox.run_tests()
+                failed_acs |= set((auto.meta or {}).get("failed_acs") or [])
+                marcas_de_mas |= set((auto.meta or {}).get("marcas_de_mas") or [])
         else:
+            # read_file, list_dir y search se fueron: cero usos en 31 turnos con
+            # historial. El prefetch de 8 bloques los volvió redundantes, y cada
+            # una era una forma más de quemar un turno.
             result = tools_mod.ToolResult(
-                False, f"acción desconocida: {action!r}. Usá read_file, list_dir, "
-                       f"search, write_spec_file, run_tests o finish.")
+                False, f"acción desconocida: {action!r}. Las únicas acciones son "
+                       f"`write_spec_file` y `finish`. Los tests se corren solos "
+                       f"después de cada escritura: no hay nada que pedir.")
 
         entry["ok"] = result.ok
         entry["output_head"] = result.output[:300]
@@ -201,14 +216,30 @@ def main() -> int:
         history.append(entry)
         print(f"   {'✓' if result.ok else '✗'} {result.output.splitlines()[0][:160] if result.output else ''}")
 
+        # La corrida automática va al historial como turno `forced`, igual que
+        # la verificación final: así no gasta iteración y `_spec_verified` y el
+        # validador siguen leyendo lo mismo que antes.
+        if auto is not None:
+            history.append({
+                "iteration": None, "model": None, "forced": True,
+                "thought": "el arnés corre el oráculo después de cada escritura",
+                "action": "run_tests", "ok": auto.ok,
+                "output_head": auto.output[:300]})
+            print(f"   {'✓' if auto.ok else '✗'} "
+                  f"{auto.output.splitlines()[0][:160] if auto.output else ''}")
+            if not auto.ok:
+                failed_runs += 1
+
         messages.append({"role": "assistant",
                          "content": json.dumps(reply, ensure_ascii=False)})
-        if action == "run_tests" and not result.ok:
-            failed_runs += 1
-        nudge = CLASIFICA if (action == "run_tests" and not result.ok
+        # El modelo ve la escritura Y el veredicto del oráculo en una sola
+        # observación: es lo que antes le costaba dos turnos enterarse.
+        vista = result if auto is None else tools_mod.ToolResult(
+            auto.ok, f"{result.output}\n\n{auto.output}", auto.meta)
+        nudge = CLASIFICA if (auto is not None and not auto.ok
                               and failed_runs >= 2) else ""
         messages.append(agent_prompt.user_turn(
-            observation(action, result, nudge)))
+            observation(action, vista, nudge)))
     else:
         outcome = "budget"
         print(f"[loop] se agotaron las {MAX_ITERATIONS} iteraciones", flush=True)
