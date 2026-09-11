@@ -129,6 +129,38 @@ class SegundaKeyTest(unittest.TestCase):
         with self.assertRaises(models.ChainExhausted):
             client.ask([{"role": "user", "content": "x"}])
 
+    def test_un_cuelgue_tambien_pasa_a_la_segunda_key(self):
+        """La corrida 7: los tres modelos se colgaron a los 200s, no hubo ni un
+        429, y con el trigger atado a la cuota la segunda key quedó sin
+        estrenar mientras la corrida moría con 0 iteraciones."""
+        import time as _t
+        os.environ["LLM_API_KEY"] = "key-1"
+        os.environ["LLM_API_KEY_FALLBACK"] = "key-2"
+        viejo = models.REQUEST_DEADLINE
+        models.REQUEST_DEADLINE = 0.3
+        try:
+            def _fake(url, key, payload, timeout):
+                self.calls.append((key, payload["model"]))
+                if key == "key-1":
+                    _t.sleep(30)          # se cuelga con la primera cuenta
+                return reply(ACTION)
+            llm_client._post = _fake
+            client = models.ChainClient(chain=["modelo-a", "modelo-b"])
+            out, _ = client.ask([{"role": "user", "content": "x"}])
+            self.assertEqual(out["action"], "write_spec_file")
+            self.assertIn("key-2", [k for k, _ in self.calls])
+        finally:
+            models.REQUEST_DEADLINE = viejo
+
+    def test_una_respuesta_vacia_tambien_pasa_a_la_segunda_key(self):
+        os.environ["LLM_API_KEY"] = "key-1"
+        os.environ["LLM_API_KEY_FALLBACK"] = "key-2"
+        self.fake_post([reply(""), reply(""), reply(ACTION)])
+        client = models.ChainClient(chain=["modelo-a", "modelo-b"])
+        out, _ = client.ask([{"role": "user", "content": "x"}])
+        self.assertEqual(out["action"], "write_spec_file")
+        self.assertEqual(self.calls[-1][0], "key-2")
+
     def test_json_roto_no_gasta_la_segunda_key(self):
         """Otra cuenta produce el mismo JSON roto: rotar ahí es pagar cuatro
         modelos más de latencia para llegar al mismo lugar."""

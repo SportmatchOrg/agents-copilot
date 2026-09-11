@@ -98,11 +98,14 @@ class ChainClient:
         if not self.keys:
             raise LLMError("Falta LLM_API_KEY. Sin runtime no hay agente.")
         self.key_index = 0
-        # `free-models-per-day` de OpenRouter se cobra por CUENTA, no por modelo:
-        # cuando pega, los cuatro modelos de la cadena devuelven 429 en ~300ms y
-        # el fallback de modelos no sirve para nada. Pasó en SPO-197, iteración 5
-        # de 15. Lo único que salva esa corrida es otra cuenta.
-        self.quota_hit = False
+        # Fallo "de capacidad": cuota, cuelgue o respuesta vacía. Son los que
+        # otra CUENTA puede arreglar, porque el free tier de OpenRouter limita
+        # por cuenta. Se distinguen del fallo "de modelo" (JSON roto), que otra
+        # cuenta repite igual. Esto arrancó mirando SOLO la cuota y quedó corto:
+        # en la corrida 7 los tres modelos se colgaron a los 200s, no hubo ni un
+        # 429, y la segunda key quedó sin estrenar mientras la corrida moría con
+        # 0 iteraciones.
+        self.capacidad_mal = False
         self.json_mode = True
         # Los modelos de la cadena razonan, y el razonamiento se cobra contra
         # `max_tokens`. En SPO-197 nemotron gastó los 8000 tokens pensando
@@ -166,18 +169,20 @@ class ChainClient:
         """Pasa a la key siguiente y reinicia la cadena. Devuelve False si no
         hay a dónde ir.
 
-        Solo si en el camino hubo un 402/429: si la cadena murió porque los
-        modelos devuelven JSON roto, otra key produce el mismo JSON roto y se
-        pagan cuatro modelos más de latencia para llegar al mismo lugar.
+        Solo si en el camino hubo un fallo de CAPACIDAD —cuota, cuelgue o
+        respuesta vacía—, que es lo que otra cuenta puede arreglar. Si murió
+        porque los modelos devuelven JSON roto, otra key da el mismo JSON roto
+        y se pagan varios modelos más de latencia para llegar al mismo lugar.
         """
-        if not self.quota_hit or self.key_index + 1 >= len(self.keys):
+        if not self.capacidad_mal or self.key_index + 1 >= len(self.keys):
             return False
         self.key_index += 1
         self.index = 0
-        self.quota_hit = False
+        self.capacidad_mal = False
         self.json_mode = True
+        self.reasoning = True
         # Nunca la key: esto va a un log público de Actions.
-        print(f"[models] cuota agotada ({reason}); paso a la API key "
+        print(f"[models] cadena agotada por capacidad ({reason}); paso a la API key "
               f"#{self.key_index + 1} y reinicio la cadena en {self.model}",
               file=sys.stderr, flush=True)
         return True
@@ -278,6 +283,7 @@ class ChainClient:
                     # Un modelo que no contesta en 200s no entra en el
                     # presupuesto de la corrida: no se reintenta, se cambia.
                     body = None
+                    self.capacidad_mal = True
                     self._advance(f"sin respuesta en {REQUEST_DEADLINE}s")
                     break
                 status, body = respuesta
@@ -297,7 +303,7 @@ class ChainClient:
                     self.json_mode = False
                     continue
                 if status in ADVANCE_NOW:
-                    self.quota_hit = True
+                    self.capacidad_mal = True
                     self._advance(f"HTTP {status} — {msg}")
                     break
                 if status in BACKOFF_FIRST and attempt < MAX_BACKOFF_ATTEMPTS:
@@ -322,6 +328,7 @@ class ChainClient:
                 # Puede ser el cuerpo de error de un status != 200 que ya avanzó.
                 continue
             if not content or not content.strip():
+                self.capacidad_mal = True
                 self._advance(f"respuesta vacía — {self._porque(parsed_body)}")
                 continue
 
