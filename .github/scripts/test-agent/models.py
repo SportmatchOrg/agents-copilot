@@ -22,6 +22,7 @@ from __future__ import annotations
 import json
 import os
 import sys
+import threading
 import time
 from pathlib import Path
 
@@ -59,6 +60,15 @@ DEFAULT_CHAIN = [
 
 DEFAULT_BASE_URL = "https://openrouter.ai/api/v1/chat/completions"
 
+# Tope de pared por llamada. `urlopen(timeout=...)` es por operación de socket,
+# NO un deadline total: mientras lleguen bytes, la llamada nunca corta. El free
+# tier de OpenRouter mantiene la conexión viva mientras el pedido espera en cola,
+# así que con "timeout=300" hubo llamadas de 387s, 464s y 600s, y una corrida con
+# MAX_WALL_SECONDS=1800 terminó en 2393s. Los turnos útiles de nemotron fueron de
+# 30 a 70s; los inútiles, de 600s. 200s separa limpio y deja margen para un spec
+# largo. Knob y no constante: el reloj real se calibra con corridas, no de cabeza.
+REQUEST_DEADLINE = int(os.environ.get("LLM_REQUEST_DEADLINE", "200"))
+
 ADVANCE_NOW = {402, 429}          # cuota o crédito: cambiar de modelo ya
 BACKOFF_FIRST = {500, 502, 503, 504, 408, 409}
 MAX_BACKOFF_ATTEMPTS = 3
@@ -77,7 +87,7 @@ class ChainClient:
     """
 
     def __init__(self, *, chain: list[str] | None = None, temperature: float = 0.1,
-                 max_tokens: int = 16000, timeout: int = 300) -> None:
+                 max_tokens: int = 16000, timeout: int = REQUEST_DEADLINE) -> None:
         self.chain = chain or self._chain_from_env()
         self.index = 0
         self.temperature = temperature
@@ -202,6 +212,35 @@ class ChainClient:
         partes.append(f"content={content[:300]!r}" if content else "content vacío")
         return " · ".join(partes)
 
+    def _post(self, payload: dict) -> tuple[int, str] | None:
+        """`llm_client._post` con un deadline de pared real. None = se pasó.
+
+        El socket timeout no alcanza (ver REQUEST_DEADLINE), y `urlopen` bloquea
+        sin forma de cancelarlo, así que el pedido va a un hilo aparte y se lo
+        abandona si no vuelve. DAEMON a propósito: un hilo normal todavía
+        colgado en urlopen haría que el intérprete lo espere al salir, y el job
+        se quedaría trabado al final por una llamada que ya no le importa a
+        nadie. El socket timeout queda igual al deadline para que el hilo
+        abandonado muera solo poco después.
+        """
+        caja: dict = {}
+
+        def correr() -> None:
+            try:
+                caja["r"] = llm_client._post(
+                    self.base_url, self.key, payload, self.timeout)
+            except BaseException as e:      # noqa: BLE001 - se re-lanza abajo
+                caja["e"] = e
+
+        hilo = threading.Thread(target=correr, daemon=True)
+        hilo.start()
+        hilo.join(REQUEST_DEADLINE)
+        if hilo.is_alive():
+            return None
+        if "e" in caja:
+            raise caja["e"]
+        return caja.get("r")
+
     @staticmethod
     def _truncada(parsed_body: dict) -> bool:
         """`finish_reason='length'`: la respuesta llegó al tope de tokens."""
@@ -234,8 +273,14 @@ class ChainClient:
                 if self.reasoning:
                     payload["reasoning"] = {"effort": "low"}
 
-                status, body = llm_client._post(
-                    self.base_url, self.key, payload, self.timeout)
+                respuesta = self._post(payload)
+                if respuesta is None:
+                    # Un modelo que no contesta en 200s no entra en el
+                    # presupuesto de la corrida: no se reintenta, se cambia.
+                    body = None
+                    self._advance(f"sin respuesta en {REQUEST_DEADLINE}s")
+                    break
+                status, body = respuesta
 
                 if status == 200:
                     break

@@ -12,6 +12,8 @@ from __future__ import annotations
 
 import json
 import os
+import threading
+import time
 import sys
 import unittest
 from pathlib import Path
@@ -222,3 +224,52 @@ class RazonamientoYTopeTest(unittest.TestCase):
         reclamo = self.payloads[1]["messages"][-1]["content"]
         self.assertIn("ÚNICAMENTE el objeto JSON", reclamo)
         self.assertNotIn("CORTÓ", reclamo)
+
+
+class DeadlineTest(unittest.TestCase):
+    """`urlopen(timeout=)` es por operación de socket, no un deadline total:
+    mientras lleguen bytes la llamada no corta. Con "timeout=300" hubo llamadas
+    de 387s, 464s y 600s, y una corrida con MAX_WALL_SECONDS=1800 terminó en
+    2393s."""
+
+    def setUp(self):
+        self._post = llm_client._post
+        self._deadline = models.REQUEST_DEADLINE
+        models.REQUEST_DEADLINE = 0.3       # el test no espera 200s
+        self.calls: list[str] = []
+
+    def tearDown(self):
+        llm_client._post = self._post
+        models.REQUEST_DEADLINE = self._deadline
+
+    def test_una_llamada_colgada_cambia_de_modelo_y_sigue(self):
+        def _fake(url, key, payload, timeout):
+            self.calls.append(payload["model"])
+            if payload["model"] == "lento":
+                time.sleep(30)              # el hilo queda abandonado
+            return reply(ACTION)
+        llm_client._post = _fake
+        client = models.ChainClient(chain=["lento", "rapido"])
+        out, _ = client.ask([{"role": "user", "content": "x"}])
+        self.assertEqual(out["action"], "write_spec_file")
+        self.assertEqual(self.calls, ["lento", "rapido"])
+
+    def test_el_hilo_abandonado_es_daemon_y_no_traba_la_salida(self):
+        """Un hilo no-daemon colgado en urlopen haría que el intérprete lo
+        espere al salir y el job quedaría trabado al final."""
+        vivos: list[bool] = []
+
+        def _fake(url, key, payload, timeout):
+            vivos.append(threading.current_thread().daemon)
+            time.sleep(30)
+            return reply(ACTION)
+        llm_client._post = _fake
+        client = models.ChainClient(chain=["lento"])
+        with self.assertRaises(models.ChainExhausted):
+            client.ask([{"role": "user", "content": "x"}])
+        self.assertTrue(all(vivos))
+
+    def test_una_respuesta_a_tiempo_pasa_derecho(self):
+        llm_client._post = lambda *a, **k: reply(ACTION)
+        out, _ = models.ChainClient(chain=["m"]).ask([{"role": "user", "content": "x"}])
+        self.assertEqual(out["action"], "write_spec_file")
