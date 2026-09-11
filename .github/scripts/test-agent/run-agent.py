@@ -123,6 +123,7 @@ def main() -> int:
     marcas_de_mas: set[str] = set()
 
     iteration = 0
+    repeticiones = 0
     free_retries = 0
     failed_runs = 0
     while iteration < MAX_ITERATIONS:
@@ -160,12 +161,22 @@ def main() -> int:
             outcome = "finished"
             break
 
-        # Detección de bucle: con 5 turnos, tolerar tres repeticiones ya te
-        # consumió el presupuesto entero. Con dos idénticas seguidas alcanza.
+        # Detección de bucle. El umbral estaba en "una repetición y corto",
+        # calibrado para 5 turnos donde cada ronda costaba dos. Ahora hay 15 de
+        # un turno cada uno y las escrituras quedaron adyacentes, así que corta
+        # mucho antes: la corrida 8 murió en la iteración 4 de 15 por una
+        # repetición que venía de un error de lint ilegible, no de tozudez. La
+        # primera se avisa y cuesta el turno; la segunda corta.
         signature = json.dumps([action, call_args], sort_keys=True)
         entry["signature"] = signature
-        if _repite(history, signature):
-            print("[loop] misma acción repetida; corte por bucle", flush=True)
+        repetida = _repite(history, signature)
+        if repetida:
+            repeticiones += 1
+        else:
+            repeticiones = 0
+        if repeticiones >= 2:
+            print("[loop] misma acción repetida dos veces; corte por bucle",
+                  flush=True)
             outcome = "loop"
             history.append(entry)
             break
@@ -180,7 +191,14 @@ def main() -> int:
         # distinto de lo que ya hace bien. Mismo criterio que la verificación
         # final, que ya lo hacía por esta razón.
         auto = None
-        if action == "write_spec_file":
+        if repetida:
+            result = tools_mod.ToolResult(False, (
+                "escribiste EXACTAMENTE lo mismo que en el turno anterior, así "
+                "que el resultado sería idéntico y no se ejecutó. Cambiá el "
+                "enfoque: si el error no te queda claro, arreglá UNA sola cosa "
+                "y volvé a escribir. Si lo repetís otra vez, se corta la "
+                "corrida."))
+        elif action == "write_spec_file":
             result = toolbox.write_spec_file(
                 str(call_args.get("path", "")), str(call_args.get("content", "")))
             if result.ok:
@@ -206,7 +224,7 @@ def main() -> int:
         entry["output_head"] = result.output[:300]
 
         # Rechazo por validación de entrada: no se ejecutó nada, no se cobra.
-        if (not result.ok and action == "write_spec_file"
+        if (not result.ok and not repetida and action == "write_spec_file"
                 and free_retries < MAX_FREE_RETRIES):
             free_retries += 1
             iteration -= 1

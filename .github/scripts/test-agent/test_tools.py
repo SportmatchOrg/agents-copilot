@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import os
 import sys
+import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -249,7 +250,19 @@ class OraculoLinteaTest(unittest.TestCase):
         tools.subprocess.run = self.real
         self.tmp.cleanup()
 
-    def fake(self, lint_rc, lint_out="1:1  error  Unsafe member access .id"):
+    @staticmethod
+    def reporte(*problemas):
+        """Salida de `eslint --format json`."""
+        import json as _j
+        return _j.dumps([{"filePath": "/x/back/test/join-requests.e2e-spec.ts",
+                          "messages": list(problemas)}])
+
+    PROBLEMA = {"line": 34, "column": 12,
+                "ruleId": "@typescript-eslint/no-unsafe-member-access",
+                "message": "Unsafe member access .id on an `any` value."}
+
+    def fake(self, lint_rc, lint_out=None):
+        lint_out = self.reporte(self.PROBLEMA) if lint_out is None else lint_out
         def _run(cmd, **kw):
             self.cmds.append(cmd)
             if cmd[:2] == ["npx", "eslint"]:
@@ -263,6 +276,10 @@ class OraculoLinteaTest(unittest.TestCase):
         self.assertFalse(r.ok)
         self.assertIn("NO PASA EL LINT", r.output)
         self.assertIn("Unsafe member access", r.output)
+        # Archivo, línea y REGLA: sin eso el error es inaccionable y el agente
+        # se cuelga reescribiendo lo mismo (corrida 8, murió en la iteración 4).
+        self.assertIn("join-requests.e2e-spec.ts:34:12", r.output)
+        self.assertIn("no-unsafe-member-access", r.output)
         # El encabezado de sección no se duplica con el del helper.
         self.assertEqual(r.output.count("NO PASA EL LINT"), 1)
         self.assertFalse(r.meta["eslint"])
@@ -296,3 +313,77 @@ class OraculoLinteaTest(unittest.TestCase):
         self.box.written.clear()
         self.fake(lint_rc=1)
         self.assertTrue(self.box.run_tests().ok)
+
+
+class LintLegibleTest(unittest.TestCase):
+    """Corrida 8: el formato `stylish` de eslint alinea con padding y va
+    precedido del path absoluto. Recortando por la COLA, al modelo le llegaba
+    una línea cortada al medio y después espacios —sin archivo, sin línea y sin
+    regla— y se colgó reescribiendo lo mismo hasta que lo cortó el detector de
+    bucle, en la iteración 4 de 15."""
+
+    class Fake:
+        def __init__(self, rc, out=""):
+            self.returncode, self.stdout, self.stderr = rc, out, ""
+
+    SPEC = "back/test/join-requests.e2e-spec.ts"
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        root = Path(self.tmp.name)
+        (root / "back" / "test").mkdir(parents=True)
+        (root / self.SPEC).write_text("it('[AC-1] x', () => {});")
+        self.box = tools.Toolbox(root)
+        self.box.written.append(self.SPEC)
+        self.real = tools.subprocess.run
+
+    def tearDown(self):
+        tools.subprocess.run = self.real
+        self.tmp.cleanup()
+
+    def lint(self, salida, rc=1):
+        tools.subprocess.run = lambda cmd, **kw: (
+            self.Fake(rc, salida) if cmd[:2] == ["npx", "eslint"]
+            else self.Fake(0, "Tests: 1 passed"))
+        return self.box._lint_specs()
+
+    def test_pide_json_y_no_el_formato_alineado(self):
+        vistos = []
+
+        def _run(cmd, **kw):
+            vistos.append(cmd)
+            return self.Fake(0, "[]")
+        tools.subprocess.run = _run
+        self.box.run_tests()
+        eslint = [c for c in vistos if c[:2] == ["npx", "eslint"]][0]
+        self.assertIn("--format", eslint)
+        self.assertEqual(eslint[eslint.index("--format") + 1], "json")
+
+    def test_una_linea_por_problema_con_archivo_linea_y_regla(self):
+        out = self.lint(json.dumps([{
+            "filePath": "/home/runner/work/s/s/back/test/join-requests.e2e-spec.ts",
+            "messages": [
+                {"line": 34, "column": 12, "ruleId": "@typescript-eslint/no-unsafe-call",
+                 "message": "Unsafe call."},
+                {"line": 41, "column": 7, "ruleId": "@typescript-eslint/no-unsafe-member-access",
+                 "message": "Unsafe member access .id."}]}]))
+        self.assertIn("join-requests.e2e-spec.ts:34:12", out)
+        self.assertIn("@typescript-eslint/no-unsafe-call", out)
+        self.assertIn("join-requests.e2e-spec.ts:41:7", out)
+        # Solo el basename: el path absoluto del runner no le dice nada.
+        self.assertNotIn("/home/runner", out)
+
+    def test_acota_cuantos_muestra_y_dice_cuantos_quedan(self):
+        muchos = [{"line": n, "column": 1, "ruleId": "r", "message": "m"}
+                  for n in range(1, 60)]
+        out = self.lint(json.dumps([{"filePath": "/x/a.ts", "messages": muchos}]))
+        self.assertLessEqual(len(out.splitlines()), tools.MAX_LINT_PROBLEMS + 5)
+        self.assertIn(f"y {59 - tools.MAX_LINT_PROBLEMS} más", out)
+
+    def test_salida_ilegible_no_se_pierde_en_silencio(self):
+        out = self.lint("esto no es JSON")
+        self.assertIn("no se pudo leer su salida", out)
+        self.assertIn("esto no es JSON", out)
+
+    def test_sin_problemas_no_hay_error(self):
+        self.assertIsNone(self.lint("[]", rc=1))

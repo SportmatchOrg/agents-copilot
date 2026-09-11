@@ -18,6 +18,7 @@ Dos invariantes que se validan en código, no en el prompt:
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 import re
 import shutil
@@ -29,6 +30,9 @@ SERVICE_ROOT = os.environ.get("SERVICE_ROOT", "back").strip("/")
 TEST_CMD = os.environ.get("TEST_CMD", "npm run test:e2e")
 
 MAX_TEST_OUTPUT = 8_000
+# Errores de lint que se le muestran. Con 20 ya tiene de sobra para una tanda de
+# arreglos, y más solo gasta contexto en repetir la misma regla.
+MAX_LINT_PROBLEMS = 20
 TEST_TIMEOUT = int(os.environ.get("TEST_TIMEOUT_SECONDS", "600"))
 
 # Tope de tamaño por spec (plan §5.6). `write_spec_file` manda el archivo
@@ -303,7 +307,8 @@ class Toolbox:
             return None
         try:
             proc = subprocess.run(
-                ["npx", "eslint", *targets, "--quiet", "--no-fix"],
+                ["npx", "eslint", *targets, "--quiet", "--no-fix",
+                 "--format", "json"],
                 cwd=self.service, capture_output=True, text=True,
                 timeout=TEST_TIMEOUT)
         except (subprocess.TimeoutExpired, FileNotFoundError):
@@ -315,6 +320,31 @@ class Toolbox:
         # ahí dejaría al agente sin salida por algo que no puede arreglar.
         if proc.returncode != 1:
             return None
-        errores = (proc.stdout + proc.stderr).strip()[-2000:]
+        # El formato por default (`stylish`) alinea en columnas con padding y va
+        # precedido del path absoluto. Recortando por la COLA —que es lo que
+        # hacía esto— al modelo le llegaba una línea cortada al medio y después
+        # espacios: sin archivo, sin línea y sin regla. En la corrida 8 se colgó
+        # reescribiendo lo mismo tres veces porque el error era ilegible, y murió
+        # en la iteración 4 de 15. Se parsea el JSON y se rinde compacto, de
+        # arriba hacia abajo: los primeros errores son los que hay que arreglar.
+        try:
+            reporte = json.loads(proc.stdout or "[]")
+        except json.JSONDecodeError:
+            return ("el lint falló y no se pudo leer su salida:\n\n"
+                    + (proc.stdout + proc.stderr).strip()[:1500])
+
+        lineas, total = [], 0
+        for archivo in reporte:
+            nombre = Path(archivo.get("filePath", "?")).name
+            for m in archivo.get("messages") or []:
+                total += 1
+                if len(lineas) < MAX_LINT_PROBLEMS:
+                    lineas.append(
+                        f"  {nombre}:{m.get('line')}:{m.get('column')}  "
+                        f"{m.get('ruleId')}  {m.get('message')}")
+        if not lineas:
+            return None
+        cola = (f"\n  ... y {total - len(lineas)} más"
+                if total > len(lineas) else "")
         return ("tipá el body de la respuesta; no lo esquives con `any`.\n\n"
-                + errores)
+                + "\n".join(lineas) + cola)
