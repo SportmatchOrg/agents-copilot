@@ -310,6 +310,8 @@ class OraculoLinteaTest(unittest.TestCase):
         self.assertFalse(r.ok)
         self.assertIn("NO PASA EL LINT", r.output)
         self.assertIn("Unsafe member access", r.output)
+        # El encabezado de sección no se duplica con el del helper.
+        self.assertEqual(r.output.count("NO PASA EL LINT"), 1)
         self.assertFalse(r.meta["eslint"])
 
     def test_lint_verde_si_es_verde(self):

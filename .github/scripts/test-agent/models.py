@@ -29,23 +29,31 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "qa-review"))
 import llm_client  # noqa: E402
 from llm_client import LLMError  # noqa: E402
 
-# Default del 2026-09-09, verificado contra openrouter.ai/api/v1/models.
+# Default del 2026-09-11, verificado contra openrouter.ai/api/v1/models.
 # Los modelos free aparecen y desaparecen: esto es un default, no una constante.
 # Se pisa con LLM_MODEL_CHAIN (coma-separada).
 #
 # Una entrada muerta no es gratis: en SPO-197 glm-5.2:free y minimax-m3:free ya
-# no existían ("This model is unavailable for free"), así que el 404 del primero
-# encadenó los dos y cayó al router en una sola iteración. El modelo del router
-# no traía el historial útil y llamó `finish` con los tests en rojo. Un fallback
-# que no existe convierte un mal turno del primario en fin de corrida.
+# no existían, así que el 404 del primero encadenó los dos y cayó al router en
+# una sola iteración. Un fallback que no existe convierte un mal turno del
+# primario en fin de corrida.
 #
-# Se prefieren modelos con `structured_outputs`: el turno se pide con
-# response_format json_object y el modo degradado (sin él) es justo el que
-# devuelve JSON sin `action`.
+# Reordenada con datos de TRES corridas (§11), no con el papel. nex-n2.5-pro y
+# dots-3-note-preview entraron por declarar `structured_outputs`, y eso resultó
+# ser el criterio equivocado: son patológicamente razonadores. Miden bien y
+# producen nada — 62093 y 59274 caracteres de `reasoning` para devolver
+# `content` vacío, quemando los 16000 tokens enteros y 600s de reloj por turno.
+# Entre las dos se comieron la mayor parte de los 1896s de la corrida 6 y son
+# la razón de que las tres últimas terminaran en timeout. `effort: low` no las
+# frena: dots-3 no declara `reasoning_effort` y nex la ignora.
+#
+# Los dos nemotron son los únicos que produjeron trabajo útil: el super escribió
+# los specs (68s las dos primeras iteraciones) y el lightning contestó rápido
+# cuando el router cayó en él. El lightning no declara `response_format`, pero
+# el 400 ya está manejado: se reintenta sin JSON mode sobre el mismo modelo.
 DEFAULT_CHAIN = [
     "nvidia/nemotron-3-super-120b-a12b:free",   # el único que produjo specs válidos
-    "nex-agi/nex-n2.5-pro:free",                # structured_outputs, 262k
-    "dots-studio/dots-3-note-preview:free",     # structured_outputs, 512k
+    "nvidia/nemotron-3.5-lightning:free",       # rápido; sin JSON mode, se degrada solo
     "openrouter/free",                          # router: último recurso, no determinístico
 ]
 

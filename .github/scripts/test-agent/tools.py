@@ -235,7 +235,9 @@ class Toolbox:
             return ToolResult(False, (
                 f"el archivo es demasiado grande ({n_lines} líneas, {n_bytes} bytes; "
                 f"máximo {MAX_SPEC_LINES} líneas / {MAX_SPEC_BYTES} bytes). "
-                f"Escribí menos casos, o repartilos en otro spec."))
+                f"El tope que muerde es el de BYTES, no el de líneas: apuntá a "
+                f"~300 líneas. Repartilo en dos specs por grupo de AC — uno por "
+                f"endpoint anda bien, y cada uno se verifica solo."))
 
         target = safe_resolve(self.repo, rel)
         if target is None:
@@ -374,7 +376,5 @@ class Toolbox:
         if proc.returncode != 1:
             return None
         errores = (proc.stdout + proc.stderr).strip()[-2000:]
-        return ("el spec NO PASA EL LINT, y el CI del repo corre `npm run lint`: "
-                "una PR que no lintea no se puede mergear. Arreglá esto "
-                "(tipá el body de la respuesta, no lo esquives con `any`):\n\n"
+        return ("tipá el body de la respuesta; no lo esquives con `any`.\n\n"
                 + errores)
