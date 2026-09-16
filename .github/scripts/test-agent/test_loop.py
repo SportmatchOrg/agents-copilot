@@ -56,6 +56,34 @@ class SpecVerifiedTest(unittest.TestCase):
         self.assertTrue(run_agent._spec_verified([w(), t(True), w(ok=False)]))
 
 
+class FinishPrematuroTest(unittest.TestCase):
+    """SPO-197: el modelo cerró en la iteración 7 de 15 con los tests en verde y
+    solo el lint en rojo. `specVerified` dio False, el validador tiró el job, y
+    se perdió un spec que estaba a dos arreglos de formato de entregarse."""
+
+    SPEC = ["back/test/a.e2e-spec.ts"]
+
+    def test_finish_con_el_oraculo_en_rojo_se_rechaza(self):
+        self.assertTrue(run_agent._finish_prematuro(
+            [w(), t(False)], self.SPEC, False))
+
+    def test_finish_con_el_oraculo_en_verde_pasa(self):
+        self.assertFalse(run_agent._finish_prematuro(
+            [w(), t(True)], self.SPEC, False))
+
+    def test_se_rechaza_una_sola_vez(self):
+        """La segunda se respeta: el modelo puede tener razón en que no hay más
+        que hacer, y un rechazo en bucle le come el presupuesto para nada."""
+        self.assertFalse(run_agent._finish_prematuro(
+            [w(), t(False)], self.SPEC, True))
+
+    def test_sin_specs_escritos_no_hay_nada_que_defender(self):
+        self.assertFalse(run_agent._finish_prematuro([], [], False))
+
+    def test_el_veredicto_le_nombra_la_salida_por_it_failing(self):
+        self.assertIn("it.failing", run_agent.NO_CIERRES)
+
+
 class ObservationNudgeTest(unittest.TestCase):
     """El recordatorio de §4 solo aparece cuando hace falta.
 

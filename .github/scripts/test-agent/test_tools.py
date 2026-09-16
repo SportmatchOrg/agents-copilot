@@ -290,15 +290,24 @@ class OraculoLinteaTest(unittest.TestCase):
         self.assertTrue(r.ok)
         self.assertTrue(r.meta["eslint"])
 
-    def test_solo_lintea_los_specs_del_agente_y_sin_fix(self):
-        """`npm run lint` del repo lleva --fix sobre src/, que el agente tiene
-        prohibido tocar. Se invoca eslint derecho y acotado."""
+    def test_solo_lintea_los_specs_del_agente_y_los_autoformatea(self):
+        """Acotado a `self.written` Y con `--fix`.
+
+        El `--no-fix` que había acá cuidaba algo real —`npm run lint` del repo
+        corre con `--fix` sobre `src/`, prohibido para el agente— pero ese
+        riesgo no existe con targets explícitos: eslint solo ve archivos que ya
+        pasaron por `SPEC_RE`. Lo que el acotamiento protege se verifica abajo.
+
+        Va con fix porque en SPO-197 lo único entre la corrida y el verde eran
+        errores `prettier/prettier`: formato determinístico, sin una decisión
+        adentro. El modelo prefirió cerrar antes que arreglarlos."""
         self.fake(lint_rc=0)
         self.box.run_tests()
         eslint = [c for c in self.cmds if c[:2] == ["npx", "eslint"]][0]
         self.assertIn("test/join-requests.e2e-spec.ts", eslint)
-        self.assertIn("--no-fix", eslint)
-        self.assertNotIn("--fix", eslint[2:])
+        self.assertIn("--fix", eslint)
+        self.assertNotIn("--no-fix", eslint)
+        # Lo que de verdad hay que garantizar: nada de `src/` entra al comando.
         self.assertFalse([a for a in eslint if a.startswith("src")])
 
     def test_eslint_roto_no_bloquea_al_agente(self):

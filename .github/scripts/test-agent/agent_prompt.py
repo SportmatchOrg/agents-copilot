@@ -197,6 +197,12 @@ más que diez tests verdes.
   }}}}
 
 `suspectedBugs` vacío es una respuesta válida y frecuente. No inventes bugs.
+
+NO CIERRES EN ROJO. Si el último `write_spec_file` no terminó con los tests, el
+compile y el lint en verde, el `finish` se RECHAZA y perdés el turno: el
+validador aborta el job igual, así que cerrar en rojo no entrega nada — ni
+siquiera los AC que ya te funcionaban. Un AC que el código no cumple se cierra
+marcándolo `it.failing(...)`, que deja la suite en verde.
 """
 
 

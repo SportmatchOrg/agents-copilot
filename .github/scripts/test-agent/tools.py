@@ -305,9 +305,22 @@ class Toolbox:
                 targets.append(str(path.relative_to(self.service)))
         if not targets:
             return None
+        # `--fix` y no `--no-fix`. El `--no-fix` original cuidaba algo real —
+        # `npm run lint` del repo corre con `--fix` sobre `src/`, que el agente
+        # tiene PROHIBIDO tocar— pero ese riesgo no existe acá: los targets son
+        # las rutas de `self.written`, que ya pasaron por `SPEC_RE`. eslint no
+        # ve ningún archivo que el agente no tenga permitido escribir.
+        #
+        # Va con fix porque en SPO-197 lo único que separaba a la corrida del
+        # verde eran errores `prettier/prettier`: formato puro, determinístico y
+        # sin una sola decisión adentro. El modelo cerró con `finish` antes que
+        # arreglarlos y el validador tiró el job. Pelear indentación a fuerza de
+        # turnos de LLM —200s y una chance de JSON roto cada uno— es tirar el
+        # presupuesto en lo único que la máquina hace mejor y gratis. Lo que
+        # queda sin arreglar es lo que sí requiere criterio: los `any` sin tipar.
         try:
             proc = subprocess.run(
-                ["npx", "eslint", *targets, "--quiet", "--no-fix",
+                ["npx", "eslint", *targets, "--quiet", "--fix",
                  "--format", "json"],
                 cwd=self.service, capture_output=True, text=True,
                 timeout=TEST_TIMEOUT)

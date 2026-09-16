@@ -71,6 +71,40 @@ Un `it.failing` PASA cuando falla: la suite queda en verde y el bug queda en el
 reporte. Es la forma de cerrar, no un fracaso."""
 
 
+# Un `finish` con el oráculo en rojo no cierra nada: el validador exige un
+# `run_tests` en verde detrás del último write (§8) y aborta el job entero. En
+# SPO-197 el modelo cerró en la iteración 7 de 15 con los tests YA en verde y
+# solo el lint en rojo —formato de Prettier— y la corrida murió con el spec a
+# dos arreglos de estar lista y ocho iteraciones sin usar.
+#
+# Pedirlo en el prompt no alcanza (ya está pedido). Devolverle el veredicto
+# cuesta un turno de quince; no hacerlo cuesta la corrida.
+NO_CIERRES = """\
+NO cerraste: el spec que estás entregando NO está en verde, y el validador
+aborta el job si el último `write_spec_file` no tiene un `run_tests` en verde
+detrás. Cerrar así tira la corrida entera — no se publica nada, ni siquiera lo
+que ya funciona.
+
+Arreglá lo que falta y volvé a escribir. Si lo que falla es un AC que el código
+no cumple, marcalo `it.failing(...)`: eso deja la suite en verde y el bug en el
+reporte, y ahí sí podés cerrar.
+
+Este es el veredicto que estás por ignorar:
+
+"""
+
+
+def _finish_prematuro(history: list[dict], written: list[str],
+                      ya_rechazado: bool) -> bool:
+    """¿Este `finish` entrega un spec que el oráculo nunca aprobó?
+
+    Se rechaza UNA sola vez. La segunda se respeta: el modelo puede tener razón
+    en que no hay más que hacer —un AC intesteable, un endpoint que no existe—
+    y un rechazo en bucle le comería el presupuesto para terminar igual en rojo.
+    """
+    return bool(written) and not ya_rechazado and not _spec_verified(history)
+
+
 def _repite(history: list[dict], signature: str) -> bool:
     """¿El turno anterior DEL MODELO fue idéntico a este?
 
@@ -126,6 +160,11 @@ def main() -> int:
     repeticiones = 0
     free_retries = 0
     failed_runs = 0
+    finish_rechazado = False
+    # El veredicto completo del último oráculo. El historial guarda solo 300
+    # caracteres —alcanza para depurar, no para que el modelo arregle nada— y
+    # cuando se le rechaza un `finish` hay que devolvérselo entero.
+    ultimo_veredicto = ""
     while iteration < MAX_ITERATIONS:
         iteration += 1
         elapsed = time.monotonic() - started
@@ -155,6 +194,17 @@ def main() -> int:
                  "action": action, "args_keys": sorted(call_args)}
 
         if action == "finish":
+            if _finish_prematuro(history, toolbox.written, finish_rechazado):
+                finish_rechazado = True
+                entry["result"] = "finish_rechazado"
+                history.append(entry)
+                print("   ✗ `finish` con el oráculo en rojo: se le devuelve el "
+                      "veredicto y sigue")
+                messages.append({"role": "assistant",
+                                 "content": json.dumps(reply, ensure_ascii=False)})
+                messages.append(agent_prompt.user_turn(
+                    NO_CIERRES + ultimo_veredicto))
+                continue
             finish_payload = call_args
             entry["result"] = "finish"
             history.append(entry)
@@ -238,6 +288,7 @@ def main() -> int:
         # la verificación final: así no gasta iteración y `_spec_verified` y el
         # validador siguen leyendo lo mismo que antes.
         if auto is not None:
+            ultimo_veredicto = auto.output
             history.append({
                 "iteration": None, "model": None, "forced": True,
                 "thought": "el arnés corre el oráculo después de cada escritura",
