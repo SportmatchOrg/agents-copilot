@@ -4,8 +4,8 @@
 # Uso:  run-local.sh <ruta-a-un-clon-de-sportmatch> [archivos,cambiados]
 #       SEC_SKIP_AGENT=1 run-local.sh ...   solo la parte determinística
 #
-# La key se lee de `agents-copilot/.env` (LLM_API_KEY=...), que está en el
-# .gitignore. Apuntalo a un CLON, no a tu carpeta de trabajo: el setup corre
+# La key se lee de `agents-copilot/.env` (SECURITY_LLM_API_KEY=... o
+# LLM_API_KEY=...), que está en el .gitignore. Apuntalo a un CLON, no a tu carpeta de trabajo: el setup corre
 # `npm ci` y `npm run build` adentro.
 set -euo pipefail
 
@@ -19,6 +19,8 @@ export SERVICE_ROOT="${SERVICE_ROOT:-back}"
 export PYTHONUNBUFFERED=1
 
 if [ -f "$ENV_FILE" ]; then set -a; . "$ENV_FILE"; set +a; fi
+# Misma prioridad que el workflow: la key propia del agente primero.
+if [ -n "${SECURITY_LLM_API_KEY:-}" ]; then export LLM_API_KEY="$SECURITY_LLM_API_KEY"; fi
 rm -rf "$CTX"; mkdir -p "$CTX"
 trap 'bash "$HERE/teardown.sh"' EXIT
 

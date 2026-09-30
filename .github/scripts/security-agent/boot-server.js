@@ -11,8 +11,10 @@
  *
  * Autenticación simulada, mismo contrato que el guard real:
  *   - sin `x-sec-user`          → 401 (igual que un request sin bearer token)
- *   - `x-sec-user: A | B | C`   → ese usuario, y se lo crea si no existe
- *                                 (`ensureExists`, igual que el guard real)
+ *   - `x-sec-user: A | B | C`   → ese usuario. Si el back tiene `ensureExists`
+ *                                 (el guard real de sportmatch lo llama), se
+ *                                 llama igual; si no, no.
+ *   Los tres quedan registrados en cada reset, como después de un login.
  * Lo que NO prueba: la verificación del token de Firebase en sí. Eso queda para
  * la revisión estática del guard.
  *
@@ -57,11 +59,15 @@ const { FIREBASE_ADMIN } = dist('firebase/firebase.module');
 const { UsersService } = dist('users/users.service');
 const { PrismaService } = dist('prisma/prisma.service');
 
-const USERS = {
-  A: { uid: 'sec-uid-a', email: 'a@security.test', name: 'Usuario A' },
-  B: { uid: 'sec-uid-b', email: 'b@security.test', name: 'Usuario B' },
-  C: { uid: 'sec-uid-c', email: 'c@security.test', name: 'Usuario C' },
-};
+// `name` y `nombre` a la vez: el `FirebaseUser` de sportmatch usa `name` y el
+// del sandbox `nombre`. Cada back lee el suyo y el otro no molesta.
+const user = (letra) => ({
+  uid: `sec-uid-${letra.toLowerCase()}`,
+  email: `${letra.toLowerCase()}@security.test`,
+  name: `Usuario ${letra}`,
+  nombre: `Usuario ${letra}`,
+});
+const USERS = { A: user('A'), B: user('B'), C: user('C') };
 
 async function main() {
   let app;
@@ -70,15 +76,38 @@ async function main() {
     async canActivate(context) {
       const request = context.switchToHttp().getRequest();
       const who = String(request.headers['x-sec-user'] || '').toUpperCase();
-      const user = USERS[who];
-      if (!user) {
+      const current = USERS[who];
+      if (!current) {
         throw new UnauthorizedException('Missing bearer token');
       }
-      await app.get(UsersService).ensureExists(user);
-      request.user = user;
+      // Mismo contrato que el guard real de CADA repo: el de sportmatch crea
+      // el usuario si no existe (`ensureExists`); el del sandbox no.
+      const users = app.get(UsersService);
+      if (typeof users.ensureExists === 'function') {
+        await users.ensureExists(current);
+      }
+      request.user = current;
       return true;
     },
   };
+
+  // A, B y C arrancan registrados, que es lo que hace el front al loguearse
+  // (sportmatch: el guard; sandbox: `GET /users/me` → `upsertFromFirebase`).
+  // Sin esto, en un back donde el guard no crea usuarios, todo endpoint que
+  // resuelve al usuario actual da 404 y el agente no puede probar nada.
+  async function provisionUsers() {
+    const users = app.get(UsersService);
+    const register =
+      typeof users.ensureExists === 'function' ? users.ensureExists.bind(users)
+        : typeof users.upsertFromFirebase === 'function' ? users.upsertFromFirebase.bind(users)
+          : null;
+    if (!register) {
+      throw new Error('UsersService no tiene ensureExists ni upsertFromFirebase');
+    }
+    for (const u of Object.values(USERS)) {
+      await register(u);
+    }
+  }
 
   const moduleRef = await Test.createTestingModule({ imports: [AppModule] })
     .overrideProvider(FIREBASE_ADMIN)
@@ -123,9 +152,10 @@ async function main() {
         response.status(500).json({ ok: false, step: 'seed', stderr: (seed.stderr || '').slice(-2000) });
         return;
       }
+      await provisionUsers();
       response.json({ ok: true });
     } catch (error) {
-      response.status(500).json({ ok: false, step: 'truncate', error: String(error) });
+      response.status(500).json({ ok: false, step: 'reset', error: String(error) });
     }
   });
 

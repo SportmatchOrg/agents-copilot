@@ -96,6 +96,11 @@ def main() -> int:
     ap.add_argument("--ctx", required=True)
     args = ap.parse_args()
     ctx = Path(args.ctx)
+    # Si el loop no corrió (sin key, sin modelo disponible) no hay nada que
+    # validar, y eso no es un error del job: el baseline igual se publica.
+    if not (ctx / "calls.json").exists() or not (ctx / "agent-output.json").exists():
+        print("replay: el loop no dejó salida; nada que validar")
+        return 0
     calls = json.loads((ctx / "calls.json").read_text(encoding="utf-8"))
     output = json.loads((ctx / "agent-output.json").read_text(encoding="utf-8"))
 

@@ -69,8 +69,11 @@ echo "→ arrancando el back en 127.0.0.1:$SEC_PORT"
 ( cd "$SERVICE"; SEC_PORT="$SEC_PORT" nohup node "$HERE/boot-server.js" \
     > "$CTX/server.log" 2>&1 & echo $! > "$CTX/server.pid" )
 
+# Listo = contesta ALGO por HTTP en `/`. No `/health`: el back del sandbox no
+# lo tiene, y el agente no le pide al repo más de lo que un Nest trae de fábrica.
 for i in $(seq 1 60); do
-  if curl -sf "http://127.0.0.1:$SEC_PORT/health" >/dev/null 2>&1; then
+  code=$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:$SEC_PORT/" 2>/dev/null || true)
+  if [ -n "$code" ] && [ "$code" != "000" ]; then
     echo "  back arriba (${i}s)"
     break
   fi

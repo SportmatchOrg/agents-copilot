@@ -54,7 +54,10 @@ def _source_block(repo: Path) -> str:
             continue
         rel = path.relative_to(repo)
         parts.append(f"--- {rel} ---\n{path.read_text(encoding='utf-8')}")
-    return "=== CÓDIGO (controllers, services, guards, DTOs) ===\n" + "\n\n".join(parts)
+    seed = repo / SERVICE_ROOT / "prisma" / "seed.ts"
+    if seed.is_file():
+        parts.append(f"--- {seed.relative_to(repo)} ---\n{seed.read_text(encoding='utf-8')}")
+    return "=== CÓDIGO (controllers, services, guards, DTOs, seed) ===\n" + "\n\n".join(parts)
 
 
 def _endpoints_block(endpoints: list[dict]) -> str:

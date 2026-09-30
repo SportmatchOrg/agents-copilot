@@ -27,9 +27,9 @@ Tenés como MÁXIMO {MAX_ITERATIONS} acciones. Cada respuesta tuya es UNA acció
 El back tiene la autenticación simulada. Cada request va como uno de estos:
   A, B, C  usuarios normales, sin ningún permiso especial entre ellos
   null     sin sesión
-La base arranca con el seed del repo: deportes, cinco usuarios (Ana, Luis,
-Marta, Pablo, Sofía) y partidos organizados por ellos. A, B y C NO son
-organizadores de ningún partido del seed.
+A, B y C ya están registrados. La base arranca con el seed del repo (el
+`prisma/seed.ts` está precargado abajo): A, B y C NO son dueños de nada de lo
+que crea el seed. Para probar algo "de otro", crealo como A y probalo como B.
 
 ## Qué buscar
 
@@ -37,11 +37,10 @@ Lo mecánico ya está chequeado (ver BASELINE abajo): no repitas pruebas de
 "sin sesión da 401" ni de "campo de más da 400".
 
 Buscá violaciones de las reglas del propio producto, leyendo el código:
-  - Un usuario que puede leer o modificar algo que es de otro: partidos,
-    solicitudes, notificaciones, perfil. (Crealo como A, intentalo como B.)
+  - Un usuario que puede leer, modificar o borrar algo que es de otro: el
+    perfil de otro usuario, un partido que no organiza, recursos asociados.
   - Reglas de negocio que se pueden saltear: cupo del partido, unirse dos
-    veces, calificar un partido en el que no jugaste, operar sobre un partido
-    cancelado, fechas en el pasado.
+    veces, operar sobre un partido cancelado o ya jugado, fechas en el pasado.
   - Respuestas que devuelven datos que no deberían (email, firebaseUid de
     OTROS usuarios).
   - Errores 500 ante un input que debería dar 4xx.

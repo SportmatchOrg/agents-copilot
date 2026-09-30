@@ -47,7 +47,7 @@ Presupuesto: 20 acciones y 1500 s. Controllers, services, guards y DTOs van prec
 
 ```bash
 git clone --branch dev git@github.com:SportmatchOrg/sportmatch.git /tmp/sm-target
-echo 'LLM_API_KEY=sk-or-...' >> agents-copilot/.env      # está en el .gitignore
+echo 'SECURITY_LLM_API_KEY=sk-or-...' >> agents-copilot/.env   # está en el .gitignore
 .github/scripts/security-agent/run-local.sh /tmp/sm-target
 SEC_SKIP_AGENT=1 .github/scripts/security-agent/run-local.sh /tmp/sm-target   # solo baseline
 ```
