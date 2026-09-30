@@ -68,4 +68,4 @@ Usa su propio Postgres (`sportmatch-security-db`, puerto 55432) y **no** el `doc
 | `report.py` | comentario de la PR |
 | `run-local.sh` | corrida completa sin GitHub |
 
-Instalación en un repo: copiar `github/workflows/security-agent.yml` a `.github/workflows/` y crear el label `security-agent`.
+Instalación en un repo: copiar `github/workflows/security-agent.yml` a `.github/workflows/`, crear el label `security-agent` y cargar el secret `SECURITY_LLM_API_KEY`. Es una key propia del agente y tiene prioridad sobre `LLM_API_KEY`: así el loop no comparte la cuota diaria con el test agent ni con el QA agent. Sin ninguna de las dos, corre solo el baseline.

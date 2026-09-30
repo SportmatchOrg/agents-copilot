@@ -40,8 +40,13 @@ on:
         type: string
         default: main
     secrets:
+      SECURITY_LLM_API_KEY:
+        description: >
+          Key propia de este agente. Si está, tiene prioridad sobre LLM_API_KEY:
+          así el loop no le come la cuota diaria al test agent ni al QA agent.
+        required: false
       LLM_API_KEY:
-        description: Solo hace falta con run_agent. Sin ella corre el baseline solo.
+        description: Fallback si no hay SECURITY_LLM_API_KEY. Sin ninguna, corre solo el baseline.
         required: false
       LLM_API_KEY_FALLBACK:
         required: false
@@ -114,7 +119,7 @@ jobs:
       - name: Loop del agente
         if: inputs.run_agent
         env:
-          LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
+          LLM_API_KEY: ${{ secrets.SECURITY_LLM_API_KEY || secrets.LLM_API_KEY }}
           LLM_API_KEY_FALLBACK: ${{ secrets.LLM_API_KEY_FALLBACK }}
           LLM_BASE_URL: ${{ vars.LLM_BASE_URL }}
           LLM_MODEL_CHAIN: ${{ inputs.llm_model_chain || vars.LLM_MODEL_CHAIN }}

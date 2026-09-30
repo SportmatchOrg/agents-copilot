@@ -9,7 +9,11 @@ name: Security Agent
 #   - Loop con el modelo: solo si la PR tiene el label `security-agent`, o a
 #     mano desde Actions. Gasta cuota de LLM_API_KEY.
 #
-# Secrets: LLM_API_KEY (solo para el loop), LLM_API_KEY_FALLBACK (opcional).
+# Secrets (solo para el loop; sin ninguno corre únicamente el baseline):
+#   SECURITY_LLM_API_KEY  key propia del agente, tiene prioridad. Recomendada:
+#                         así no comparte cuota diaria con los otros agentes.
+#   LLM_API_KEY           fallback si no está la anterior.
+#   LLM_API_KEY_FALLBACK  opcional, key de OTRA cuenta de OpenRouter.
 
 on:
   pull_request:
@@ -35,5 +39,6 @@ jobs:
     with:
       run_agent: ${{ github.event_name == 'workflow_dispatch' && inputs.run_agent || contains(github.event.pull_request.labels.*.name, 'security-agent') }}
     secrets:
+      SECURITY_LLM_API_KEY: ${{ secrets.SECURITY_LLM_API_KEY }}
       LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
       LLM_API_KEY_FALLBACK: ${{ secrets.LLM_API_KEY_FALLBACK }}
