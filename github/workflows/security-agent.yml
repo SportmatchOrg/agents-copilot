@@ -1,0 +1,44 @@
+name: Security Agent
+
+# Wrapper. Toda la lógica vive en SportmatchOrg/agents-copilot: acá solo se
+# declara cuándo corre.
+#
+# Qué hace: levanta el back dentro del runner (base descartable, auth simulada)
+# y deja UN comentario en la PR con los hallazgos de seguridad de la API.
+#   - Chequeos determinísticos: en cada PR que toque back/. No gastan cuota.
+#   - Loop con el modelo: solo si la PR tiene el label `security-agent`, o a
+#     mano desde Actions. Gasta cuota de LLM_API_KEY.
+#
+# Secrets (solo para el loop; sin ninguno corre únicamente el baseline):
+#   SECURITY_LLM_API_KEY  key propia del agente, tiene prioridad. Recomendada:
+#                         así no comparte cuota diaria con los otros agentes.
+#   LLM_API_KEY           fallback si no está la anterior.
+#   LLM_API_KEY_FALLBACK  opcional, key de OTRA cuenta de OpenRouter.
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review, labeled]
+    branches: [dev, main]
+    paths: ['back/**']
+  workflow_dispatch:
+    inputs:
+      run_agent:
+        description: "Correr también el loop con el modelo (gasta cuota)"
+        type: boolean
+        default: true
+
+jobs:
+  security-agent:
+    # Van acá: un workflow llamado solo puede REDUCIR lo que el llamador le
+    # pasa, nunca ampliarlo.
+    permissions:
+      contents: read
+      pull-requests: write
+    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.draft == false
+    uses: SportmatchOrg/agents-copilot/.github/workflows/security-agent-reusable.yml@main
+    with:
+      run_agent: ${{ github.event_name == 'workflow_dispatch' && inputs.run_agent || contains(github.event.pull_request.labels.*.name, 'security-agent') }}
+    secrets:
+      SECURITY_LLM_API_KEY: ${{ secrets.SECURITY_LLM_API_KEY }}
+      LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
+      LLM_API_KEY_FALLBACK: ${{ secrets.LLM_API_KEY_FALLBACK }}

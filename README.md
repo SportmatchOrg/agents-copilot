@@ -19,6 +19,7 @@ Copilot no usa "subagentes" como Claude; usa **chat modes**, **custom instructio
 | 2.1 | **QA PR Review Agent** | **Reusable workflow + agent skill + criterios QA** | **Automático en cada PR a dev/main: prepara una review PENDING a nombre del QA** |
 | 9 | Sprint Health | Workflow (cron + LLM) | Automático, diario → Discord |
 | 10 | Status Reporter | Workflow (cron + LLM) | Automático, semanal → Discord |
+| 11 | **Security Agent** | **Reusable workflow** (baseline determinístico + loop agéntico) | Automático en cada PR que toca `back/` (baseline); con el label `security-agent` o a mano, también el loop |
 
 Además: **`AGENTS.md`** en la raíz — Copilot code review **ya lo lee automáticamente** como contexto. Es el archivo más importante; completalo primero (tiene `TODO`s para el stack).
 
@@ -42,6 +43,7 @@ Qué evento dispara cada workflow:
 | `pr-review` (nativo) | Cada PR | Comentarios inline de Copilot |
 | `sprint-health.yml` | Cron diario | Discord |
 | `weekly-status.yml` | Cron semanal | Commit del reporte + Discord |
+| `security-agent.yml` | PR a dev/main que toca `back/` · label `security-agent` · manual | Comentario en la PR (se edita in-place) con los hallazgos de seguridad de la API |
 
 ## Estructura y dónde va cada cosa
 
@@ -214,6 +216,15 @@ esperado, si hay más de 5 findings, si un criterio o severidad no existe, o si 
 inválido — y **degrada a global** cualquier finding inline cuya línea no pertenezca al diff, en
 vez de adivinar una posición. Si la PR recibió commits nuevos durante el análisis, no publica:
 la corrida de ese push genera el borrador actualizado.
+
+### Agente 11 — Security Agent (`security-agent.yml` → reusable workflow)
+
+Levanta el back **dentro del runner** (Postgres descartable, autenticación simulada con tres usuarios) y revisa la API en dos capas. Nunca le pega a un entorno desplegado.
+
+- **Baseline, sin modelo.** En cada PR que toca `back/`: guards, 401 sin sesión, 400 con campo de más, rutas pisadas, SQL crudo. Gratis y determinístico.
+- **Loop, con modelo.** Con el label `security-agent` en la PR, o a mano desde Actions: el modelo lee el código y le pega a la API como usuarios distintos, buscando violaciones de autorización y de reglas de negocio. Cada hallazgo cita requests reales y se **re-ejecuta desde una base limpia** antes de publicarse; lo que no se reproduce se descarta.
+
+Instalación en el repo de desarrollo: copiar `github/workflows/security-agent.yml`, crear el label `security-agent` y cargar el secret `SECURITY_LLM_API_KEY` (OpenRouter; sin él corre solo el baseline). Detalle, diseño y corrida local: [`.github/scripts/security-agent/README.md`](.github/scripts/security-agent/README.md).
 
 ## Notas / ajustes posibles
 
