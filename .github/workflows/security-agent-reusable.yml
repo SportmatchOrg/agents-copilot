@@ -127,8 +127,13 @@ jobs:
           python3 "$SCRIPTS/run-agent.py" --ctx "$CTX" --repo "$TARGET" \
             --changed "${{ steps.changed.outputs.files }}"
 
+      # Sin condición sobre los archivos: `hashFiles()` solo ve dentro del
+      # workspace y $CTX vive en runner.temp, así que la condición daba siempre
+      # vacío y el replay no corría nunca (PR #31 del sandbox: el agente declaró
+      # un hallazgo y el comentario dijo "Sin hallazgos"). `replay.py` ya
+      # tolera que el loop no haya dejado salida.
       - name: Replay de los hallazgos
-        if: inputs.run_agent && hashFiles(format('{0}/security-agent/agent-output.json', runner.temp)) != ''
+        if: inputs.run_agent
         run: python3 "$SCRIPTS/replay.py" --ctx "$CTX"
 
       - name: Reporte
