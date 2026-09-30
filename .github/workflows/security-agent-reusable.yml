@@ -1,0 +1,165 @@
+name: Security Agent (reusable)
+
+# Revisa la seguridad de la API del repo llamador en dos capas:
+#
+#   1. Chequeos determinísticos, SIN modelo: guards, 401 sin sesión, 400 con
+#      campo de más, rutas pisadas, SQL crudo. Gratis: corren siempre.
+#   2. Loop agéntico (opcional, `run_agent: true`): el modelo lee el código y le
+#      pega a la API como tres usuarios distintos buscando violaciones de
+#      autorización y de reglas de negocio. Cada hallazgo se re-ejecuta desde
+#      una base limpia antes de publicarse (`replay.py`).
+#
+#   PR → Postgres descartable + build + back con auth simulada
+#      → endpoints → baseline → [►LOOP◄ → replay] → comentario en la PR
+#
+# El back corre DENTRO del runner, contra una base que nace y muere en el job.
+# Nunca se le pega al Azure de dev ni al de prod: `target.py` solo habla con
+# 127.0.0.1.
+#
+# El loop va detrás de un flag por la misma razón que el test agent se dispara a
+# mano: un loop agéntico automático en cada PR es la forma más rápida de quemar
+# la cuota diaria de modelos free sin que nadie se entere.
+
+on:
+  workflow_call:
+    inputs:
+      run_agent:
+        description: Correr también el loop con el modelo (gasta cuota).
+        type: boolean
+        default: false
+      service_root:
+        description: Raíz del servicio dentro del repo.
+        type: string
+        default: back
+      llm_model_chain:
+        description: Cadena de modelos, coma-separada. Vacío = default del test agent.
+        type: string
+        default: ""
+      agents_ref:
+        description: Rama o tag de agents-copilot con la lógica del agente.
+        type: string
+        default: main
+    secrets:
+      LLM_API_KEY:
+        description: Solo hace falta con run_agent. Sin ella corre el baseline solo.
+        required: false
+      LLM_API_KEY_FALLBACK:
+        required: false
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  security-agent:
+    runs-on: ubuntu-latest
+
+    concurrency:
+      group: security-agent-${{ github.repository }}-${{ github.event.pull_request.number || github.ref }}
+      cancel-in-progress: true
+
+    env:
+      TARGET: ${{ github.workspace }}/target
+      SCRIPTS: ${{ github.workspace }}/agents-copilot/.github/scripts/security-agent
+      SERVICE_ROOT: ${{ inputs.service_root }}
+      PYTHONUNBUFFERED: "1"
+
+    steps:
+      - name: Preparar rutas
+        run: echo "CTX=$RUNNER_TEMP/security-agent" >> "$GITHUB_ENV"
+
+      - name: Checkout del repo a revisar
+        uses: actions/checkout@v4
+        with:
+          path: target
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Checkout de agents-copilot (lógica del agente)
+        uses: actions/checkout@v4
+        with:
+          repository: SportmatchOrg/agents-copilot
+          ref: ${{ inputs.agents_ref }}
+          path: agents-copilot
+          persist-credentials: false
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: target/.nvmrc
+          cache: npm
+          cache-dependency-path: target/${{ inputs.service_root }}/package-lock.json
+
+      - name: Archivos que toca la PR
+        id: changed
+        run: |
+          if [ -n "${{ github.event.pull_request.base.sha }}" ]; then
+            files=$(git -C target diff --name-only \
+              "${{ github.event.pull_request.base.sha }}...${{ github.event.pull_request.head.sha }}" \
+              | paste -sd, -)
+          else
+            files=""
+          fi
+          echo "files=$files" >> "$GITHUB_OUTPUT"
+
+      - name: Levantar el blanco
+        run: bash "$SCRIPTS/setup-stack.sh" "$TARGET"
+
+      - name: Mapa de endpoints
+        run: python3 "$SCRIPTS/endpoints.py" --repo "$TARGET" --out "$CTX/endpoints.json"
+
+      - name: Chequeos determinísticos
+        run: python3 "$SCRIPTS/baseline.py" --repo "$TARGET" --ctx "$CTX"
+
+      # Ningún step del loop recibe el token de GitHub.
+      - name: Loop del agente
+        if: inputs.run_agent
+        env:
+          LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
+          LLM_API_KEY_FALLBACK: ${{ secrets.LLM_API_KEY_FALLBACK }}
+          LLM_BASE_URL: ${{ vars.LLM_BASE_URL }}
+          LLM_MODEL_CHAIN: ${{ inputs.llm_model_chain || vars.LLM_MODEL_CHAIN }}
+        run: |
+          python3 "$SCRIPTS/run-agent.py" --ctx "$CTX" --repo "$TARGET" \
+            --changed "${{ steps.changed.outputs.files }}"
+
+      - name: Replay de los hallazgos
+        if: inputs.run_agent && hashFiles(format('{0}/security-agent/agent-output.json', runner.temp)) != ''
+        run: python3 "$SCRIPTS/replay.py" --ctx "$CTX"
+
+      - name: Reporte
+        if: always()
+        run: |
+          python3 "$SCRIPTS/report.py" --ctx "$CTX" || true
+          cat "$CTX/report.md" >> "$GITHUB_STEP_SUMMARY" 2>/dev/null \
+            || echo "El agente no llegó a producir un reporte." >> "$GITHUB_STEP_SUMMARY"
+
+      # Un solo comentario por PR, editado en el lugar en cada push.
+      - name: Comentar en la PR
+        if: github.event.pull_request.number
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR: ${{ github.event.pull_request.number }}
+          REPO: ${{ github.repository }}
+        run: |
+          [ -f "$CTX/report.md" ] || exit 0
+          MARKER='<!-- agente:security-agent -->'
+          EXISTING=$(gh api "repos/$REPO/issues/$PR/comments" --paginate \
+            --jq "[.[] | select(.body | startswith(\"$MARKER\"))] | last | .id // empty")
+          if [ -n "$EXISTING" ]; then
+            gh api "repos/$REPO/issues/comments/$EXISTING" -X PATCH -F body=@"$CTX/report.md" >/dev/null
+          else
+            gh pr comment "$PR" --repo "$REPO" --body-file "$CTX/report.md"
+          fi
+
+      - name: Apagar el blanco
+        if: always()
+        run: bash "$SCRIPTS/teardown.sh"
+
+      - name: Guardar el historial del agente
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: security-agent-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/security-agent
+          retention-days: 14
+          if-no-files-found: ignore
