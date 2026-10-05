@@ -51,6 +51,20 @@ process.env.FIREBASE_PRIVATE_KEY ??= 'clave-sintetica-no-usada';
 const req = (p) => require(path.join(BACK, 'node_modules', p));
 const dist = (p) => require(path.join(BACK, 'dist', p));
 
+// Web push (SPO-243): `validateEnv` exige las VAPID y el constructor de
+// `PushSubscriptionsService` llama a `setVapidDetails`, que valida el formato
+// (65 bytes la pública, 32 la privada). Un string de relleno no pasa: se genera
+// un par descartable con el `web-push` del propio back. El sandbox no lo tiene
+// instalado y tampoco pide las variables, así que ahí se saltea.
+if (!process.env.VAPID_PUBLIC_KEY || !process.env.VAPID_PRIVATE_KEY) {
+  try {
+    const { publicKey, privateKey } = req('web-push').generateVAPIDKeys();
+    process.env.VAPID_PUBLIC_KEY = publicKey;
+    process.env.VAPID_PRIVATE_KEY = privateKey;
+  } catch {}
+}
+process.env.VAPID_SUBJECT ??= 'mailto:sec@security.test';
+
 const { Test } = req('@nestjs/testing');
 const { ValidationPipe, UnauthorizedException } = req('@nestjs/common');
 const { AppModule } = dist('app.module');
