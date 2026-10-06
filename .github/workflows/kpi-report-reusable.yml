@@ -1,0 +1,88 @@
+name: Reporte de KPIs — reusable
+
+# Reporte diario de KPIs de SportMatch al dashboard de la cátedra (ADR-001).
+#
+#   20 × GET /health ─┐
+#   PRs de GitHub ────┼─► junta los 10 ─► ¿los 10 READY? ─► POST al dashboard
+#   POST /kpis/snapshots (back: 7 de negocio, los guarda en su base) ─┘
+#
+# Publicación atómica: si un KPI no está READY no se publica ninguno, el job
+# falla y se avisa por Discord. Código determinístico, sin modelo: el challenge
+# prohíbe agentes de IA como mecanismo de reporting.
+#
+# Lo dispara `kpi-report.yml`, en este mismo repo. Ver docs/HANDOFF-kpi-report.md.
+
+on:
+  workflow_call:
+    inputs:
+      env:
+        description: Ambiente de SportMatch y del dashboard (dev | prod).
+        type: string
+        required: true
+      mode:
+        description: dry-run | report | catalog.
+        type: string
+        required: true
+      date:
+        description: YYYY-MM-DD. Vacío = ayer en Buenos Aires.
+        type: string
+        default: ""
+
+permissions:
+  contents: read
+
+jobs:
+  kpi-report:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    # Los secrets por ambiente (URL del back, KPI_API_KEY, KPI_PROJECT_KEY)
+    # salen del GitHub Environment con este nombre.
+    environment: ${{ inputs.env }}
+
+    # A nivel job: en un reusable, un `concurrency:` de workflow hace que
+    # GitHub rechace el archivo entero.
+    concurrency:
+      group: kpi-report-${{ inputs.env }}
+      cancel-in-progress: false
+
+    env:
+      KPI_OUT_DIR: ${{ github.workspace }}/kpi-out
+      PYTHONUNBUFFERED: "1"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Calcular y publicar
+        env:
+          KPI_ENV: ${{ inputs.env }}
+          KPI_MODE: ${{ inputs.mode }}
+          KPI_DATE: ${{ inputs.date }}
+          SPORTMATCH_API_URL: ${{ vars.SPORTMATCH_API_URL }}
+          KPI_API_KEY: ${{ secrets.KPI_API_KEY }}
+          KPI_PROJECT_KEY: ${{ secrets.KPI_PROJECT_KEY }}
+          KPI_SUPABASE_URL: ${{ vars.KPI_SUPABASE_URL }}
+          KPI_SUPABASE_PUBLISHABLE_KEY: ${{ vars.KPI_SUPABASE_PUBLISHABLE_KEY }}
+          # `sportmatch` es privado: el GITHUB_TOKEN de esta corrida solo lee
+          # agents-copilot. Si algún día se hace público, alcanza con el token.
+          PR_READ_TOKEN: ${{ secrets.SPORTMATCH_PR_READ_TOKEN || github.token }}
+        run: python3 .github/scripts/kpi-report/report.py run
+
+      - name: Guardar el lote como artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: kpi-${{ inputs.env }}-${{ github.run_id }}
+          path: kpi-out/
+          retention-days: 90
+          if-no-files-found: ignore
+
+      - name: Avisar por Discord
+        if: failure()
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_PROGRESS }}
+        run: python3 .github/scripts/kpi-report/report.py notify

@@ -1,0 +1,39 @@
+name: Reporte de KPIs
+
+# Disparador del reporte diario de KPIs. Toda la lógica está en
+# kpi-report-reusable.yml; acá solo se elige cuándo y con qué inputs corre.
+# Instrucciones de uso y configuración: docs/HANDOFF-kpi-report.md.
+
+on:
+  workflow_dispatch:
+    inputs:
+      env:
+        description: Ambiente
+        type: choice
+        options: [dev, prod]
+        default: dev
+      mode:
+        description: "dry-run = no publica · report = publica · catalog = alta de los 10 KPIs"
+        type: choice
+        options: [dry-run, report, catalog]
+        default: dry-run
+      date:
+        description: YYYY-MM-DD (vacío = ayer en Buenos Aires)
+        type: string
+        required: false
+  # Habilitar cuando el reporte manual en prod ya haya salido bien:
+  # 01:15 de Buenos Aires, todos los días.
+  # schedule:
+  #   - cron: "15 4 * * *"
+
+jobs:
+  kpi-report:
+    permissions:
+      contents: read
+    uses: ./.github/workflows/kpi-report-reusable.yml
+    with:
+      # Una corrida del schedule no trae inputs: va a prod y publica.
+      env: ${{ inputs.env || 'prod' }}
+      mode: ${{ inputs.mode || 'report' }}
+      date: ${{ inputs.date || '' }}
+    secrets: inherit
