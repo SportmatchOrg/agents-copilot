@@ -106,8 +106,6 @@ class Context:
                 "No disponible (la rama no referencia ningún ticket, o no se pudo "
                 "consultar Linear).\n\n"
                 "Consecuencias:\n"
-                "- QA-05 (evidencia visual): NO lo evalúes. Sin poder mirar el ticket, "
-                "que falte una captura es desconocido, no falso.\n"
                 "- QA-01 (scope): solo podés compararlo contra el TÍTULO y la "
                 "DESCRIPCIÓN de la PR. Si lo hacés, el mensaje tiene que decir "
                 "explícitamente que la base es el título de la PR y no el ticket "
@@ -126,8 +124,7 @@ class Context:
         return (
             "=== TICKET DE LINEAR ===\n"
             f"{i.get('identifier')} — {i.get('title')}\n"
-            f"Estado: {(i.get('state') or {}).get('name', '?')}\n"
-            f"Tiene evidencia visual (screenshots/videos): {i.get('hasVisualEvidence')}\n\n"
+            f"Estado: {(i.get('state') or {}).get('name', '?')}\n\n"
             f"Descripción:\n{(i.get('description') or '(vacía)')[:6000]}\n\n"
             f"Comentarios:\n{comments}\n\n"
             f"Attachments:\n{attachments}"

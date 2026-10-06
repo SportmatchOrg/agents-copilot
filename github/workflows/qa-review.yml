@@ -23,7 +23,7 @@ name: QA Review
 #   QA_LLM_API_KEY   Opcional. Solo si querés que ESTE agente use otro proveedor
 #                    (ej. OpenRouter) sin tocar la key de los demás. Si está,
 #                    tiene prioridad sobre LLM_API_KEY.
-#   LINEAR_API_KEY   Opcional. Sin ella se omiten QA-01 (scope) y QA-05 (evidencia).
+#   LINEAR_API_KEY   Opcional. Sin ella, QA-01 (scope) se evalúa solo contra el título.
 #
 # Para cambiar de modelo no hace falta tocar código: se pasa `llm_model` acá abajo.
 

@@ -79,7 +79,7 @@ echo '{}' > "$OUT/linear-issue.json"
 if [ -n "$IDENT" ] && [ -n "${LINEAR_API_KEY:-}" ] && [ -n "${LINEAR_SH:-}" ] && [ -f "${LINEAR_SH}" ]; then
   if bash "$LINEAR_SH" issue-context "$IDENT" > "$OUT/linear.tmp" 2>/dev/null && [ -s "$OUT/linear.tmp" ]; then
     mv "$OUT/linear.tmp" "$OUT/linear-issue.json"
-    echo "Linear: $IDENT encontrado (evidencia visual: $(jq -r .hasVisualEvidence "$OUT/linear-issue.json"))"
+    echo "Linear: $IDENT encontrado."
   else
     rm -f "$OUT/linear.tmp"
     echo "Linear: la rama referencia $IDENT pero no se pudo consultar el ticket (evidence unavailable)."

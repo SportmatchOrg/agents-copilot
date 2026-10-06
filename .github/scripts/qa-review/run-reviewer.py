@@ -53,7 +53,7 @@ REGLAS DE CALIDAD (las más importantes)
 5. Si hay findings BLOCKER o MAJOR, no agregues NITs.
 6. Los hechos determinísticos ya están calculados: usalos tal cual. No cuentes
    líneas ni busques console.log a ojo.
-7. QA-08 NO se revisa nunca: se resuelve con la config del repo.
+7. QA-05 y QA-08 NO se revisan nunca: el agente no puede verificarlos.
 8. Los mensajes van en español, breves (1–3 frases), concretos y
    constructivos. Los nombres de código quedan en su idioma real. Nada de
    mayúsculas de alarma ni sermones.
@@ -65,7 +65,7 @@ INLINE vs GLOBAL
 - `inline`: el problema está en una línea concreta que la PR agregó. Requiere
   `path` y `line`.
 - `global`: no hay una línea única (tamaño de PR, scope, dependencia,
-  falta de evidencia visual, observación de arquitectura).
+  observación de arquitectura).
 
 La línea de un finding inline TIENE que estar en la lista de LÍNEAS
 COMENTABLES de abajo. Esa lista es exactamente lo que la PR agregó. Si el
@@ -79,7 +79,6 @@ Respondé ÚNICAMENTE este objeto JSON, sin markdown ni backticks:
 
 {{
   "version": 1,
-  "summary": "2 o 3 frases sobre qué hace la PR.",
   "positives": ["algo concreto y real de esta PR"],
   "findings": [
     {{
@@ -99,7 +98,7 @@ Respondé ÚNICAMENTE este objeto JSON, sin markdown ni backticks:
   ]
 }}
 
-`criterion` ∈ QA-01, QA-02, QA-03, QA-04, QA-05, QA-06, QA-07, QA-09, QA-10.
+`criterion` ∈ QA-01, QA-02, QA-03, QA-04, QA-06, QA-07, QA-09, QA-10.
 `severity` ∈ BLOCKER, MAJOR, MINOR, NIT.
 `kind` ∈ inline, global.
 """

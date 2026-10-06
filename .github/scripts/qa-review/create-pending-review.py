@@ -119,7 +119,7 @@ def render_body(review: dict, linear: dict, marker: str) -> str:
     globals_ = [f for f in findings if f["kind"] == "global"]
     inline = [f for f in findings if f["kind"] == "inline"]
 
-    parts = ["## QA Review — Draft", "", review["summary"]]
+    parts = ["## QA Review"]
 
     if review.get("positives"):
         parts += ["", "### Positivo", ""]
@@ -142,17 +142,7 @@ def render_body(review: dict, linear: dict, marker: str) -> str:
         parts += ["", f"Ticket: [{linear['identifier']}]({linear.get('url', '')}) — "
                       f"{linear.get('title', '')}"]
 
-    parts += [
-        "",
-        "---",
-        "",
-        "Review preparada automáticamente por el QA PR Review Agent a partir de "
-        "`pr-review/SKILL.md` y `qa-criteria.md`. Los comentarios son propuestas: "
-        "editá, borrá lo que no aplique y agregá lo tuyo. **La decisión y el submit "
-        "son humanos.**",
-        "",
-        marker,
-    ]
+    parts += ["", marker]
     return "\n".join(parts)
 
 

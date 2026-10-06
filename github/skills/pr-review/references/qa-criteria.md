@@ -234,50 +234,14 @@ de código comentado.
 
 **Regla.** Suma mucho agregar screenshots/videos en Linear cuando existen cambios visuales.
 
-**Evidencia.** `visualChangeLikely` (determinístico) + `linear-issue.json`
-(`description`, `comments`, `attachments`).
+**Estado:** `NOT REVIEWED BY AGENT`.
 
-**Severidad típica.** `NIT`. **Nunca `BLOCKER` ni `MAJOR`.** **Tipo:** `global`.
+El agente no tiene forma confiable de saber si el ticket tiene capturas: la heurística de
+"cambio visual" y la lectura de attachments daban un finding casi siempre, y casi siempre
+falso. Queda como práctica del equipo, no como criterio del agente.
 
-### Condiciones para que exista el finding
-
-Las tres, juntas:
-
-1. `visualChangeLikely == true`.
-2. `linear-issue.json` se pudo consultar de verdad (tiene `id`).
-3. No hay evidencia visual: ni imágenes/videos embebidos en la descripción, ni en los
-   comentarios, ni attachments de imagen/video.
-
-```text
-QA-05 · NIT · global
-La PR modifica UI pero no encontré capturas ni video en SPM-42. Una imagen del resultado
-le ahorraría bastante tiempo a la review.
-```
-
-### Qué cuenta como evidencia, y qué no
-
-`hasVisualEvidence` es un hecho calculado por código: busca imágenes o videos **embebidos o
-adjuntos en el propio ticket**. Es la fuente de verdad de este criterio.
-
-Que la descripción *mencione* diseños no es evidencia:
-
-```text
-"Las capturas del diseño muestran la barra en sus tres estados."   → NO es evidencia
-"Mobile-first, como el diseño de Figma."                           → NO es evidencia
-```
-
-El punto de QA-05 es que quien revisa pueda ver el cambio **sin salir de Linear**. Un texto que
-remite a un Figma no cumple eso. Si `hasVisualEvidence` es `false`, es `false`, aunque el ticket
-hable de diseños.
-
-**NO marcar**
-- Si `linear-issue.json` está vacío o la consulta a Linear falló. En ese caso el estado real
-  es **desconocido**, y afirmar que falta evidencia sería inventar. Se reporta como
-  `evidence unavailable` en el log del job, no como finding.
-- Si hay cualquier attachment de imagen o video, aunque no se pueda ver su contenido.
-- Si el cambio es de tipos, tests, config o backend, aunque toque un archivo `.ts` dentro de
-  `frontend/`.
-- Si ya hay findings `MAJOR` (regla transversal 4).
+El agente **nunca** genera un finding `QA-05`. El validador rechaza cualquier finding con este
+criterio.
 
 ---
 

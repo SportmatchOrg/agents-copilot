@@ -5,7 +5,7 @@ Resuelve sin LLM la parte de los criterios QA que es puramente mecánica, para
 que el modelo reciba hechos en vez de tener que buscarlos: cuántas líneas
 revisables tiene la PR (QA-01), qué dependencias nuevas aparecieron (QA-03),
 dónde quedó debugging (QA-04), qué márgenes se agregaron (QA-09), qué assets
-pesados se versionaron (QA-07) y si el cambio es probablemente visual (QA-05).
+pesados se versionaron (QA-07).
 
 Menos tokens, más consistencia, y reglas simples que no dependen del modelo.
 
@@ -46,12 +46,6 @@ CSS_MARGIN_RE = re.compile(r"(?<![\w-])margin(-(top|right|bottom|left|block|inli
 MARGIN_EXTS = {".ts", ".tsx", ".js", ".jsx", ".css", ".scss", ".sass", ".less",
                ".html", ".vue", ".svelte"}
 MARGIN_ALLOWED = {"mx-auto", "m-auto", "m-0", "mx-0", "my-0"}
-
-# --- QA-05: cambio visual ---------------------------------------------------
-VISUAL_EXTS = {".tsx", ".jsx", ".css", ".scss", ".sass", ".less", ".vue", ".svelte", ".html"}
-VISUAL_DIR_RE = re.compile(
-    r"(^|/)(components?|pages?|app|views?|screens?|layouts?|styles?|ui|public|assets)(/|$)", re.I
-)
 
 DEP_KINDS = ("dependencies", "devDependencies", "peerDependencies", "optionalDependencies")
 
@@ -179,22 +173,6 @@ def check_assets(repo: Path, files: dict[str, qa_diff.FileDiff]) -> list[dict]:
     return out
 
 
-def check_visual(files: dict[str, qa_diff.FileDiff]) -> tuple[bool, list[str]]:
-    """QA-05. Heurística: ¿es probable que esta PR cambie algo que el usuario ve?"""
-    reasons = []
-    for path, fd in files.items():
-        if fd.status == "deleted" or not fd.reviewable or qa_diff.is_test_path(path):
-            continue
-        ext = qa_diff.ext_of(path)
-        if ext in VISUAL_EXTS:
-            reasons.append(path)
-        elif ext in {".ts", ".js"} and VISUAL_DIR_RE.search(path):
-            reasons.append(path)
-        elif qa_diff.is_binary(path) and VISUAL_DIR_RE.search(path):
-            reasons.append(path)
-    return bool(reasons), sorted(set(reasons))[:20]
-
-
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--patch", required=True)
@@ -212,7 +190,6 @@ def main() -> int:
     total = sum(f.additions + f.deletions for f in files.values())
     new_deps, removed_deps, dep_warnings = check_dependencies(
         repo, args.base_sha, args.head_sha, files)
-    visual, visual_files = check_visual(files)
 
     facts = {
         "prSizeLimit": PR_SIZE_LIMIT,
@@ -235,8 +212,6 @@ def main() -> int:
         "debugStatements": check_debug(files),
         "marginUsages": check_margins(files),
         "largeAssets": check_assets(repo, files),
-        "visualChangeLikely": visual,
-        "visualChangeFiles": visual_files,
         "warnings": dep_warnings,
         # Diff vacío: PR ya mergeada, rama sin cambios contra su base, o todo el
         # cambio es no revisable (lockfiles, generados). Llamar al modelo acá es

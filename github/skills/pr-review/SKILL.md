@@ -33,6 +33,5 @@ Cuando revises un Pull Request de SportMatch, aplicá este checklist además del
 No mergees ni apliques cambios de forma autónoma. Comentá con evidencia y, si un `BLOCKER` amerita seguimiento, sugerí el texto de una tarjeta para Linear. La decisión es humana ("Lab4 no codifica").
 
 ## Salida
-Cerrá siempre con:
-- **Resumen del PR** (2-3 líneas, qué hace).
-- **Veredicto:** Aprobar / Aprobar con cambios menores / Solicitar cambios.
+No resumas lo que hace el PR: quien revisa ya lo sabe. Cerrá con el **veredicto**:
+Aprobar / Aprobar con cambios menores / Solicitar cambios.

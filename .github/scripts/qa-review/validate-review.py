@@ -32,9 +32,9 @@ import qa_diff  # noqa: E402
 
 MAX_FINDINGS = 5
 MAX_MESSAGE_CHARS = 1200
-MAX_SUMMARY_CHARS = 2000
-# QA-08 queda deliberadamente afuera: se resuelve con "auto-delete head branches".
-VALID_CRITERIA = {"QA-01", "QA-02", "QA-03", "QA-04", "QA-05",
+# QA-05 y QA-08 quedan deliberadamente afuera: el agente no puede verificarlos
+# (evidencia visual en Linear / branches mergeadas) y sus findings eran ruido.
+VALID_CRITERIA = {"QA-01", "QA-02", "QA-03", "QA-04",
                   "QA-06", "QA-07", "QA-09", "QA-10"}
 VALID_SEVERITIES = {"BLOCKER", "MAJOR", "MINOR", "NIT"}
 SEVERITY_ORDER = {"BLOCKER": 0, "MAJOR": 1, "MINOR": 2, "NIT": 3}
@@ -100,10 +100,6 @@ def validate(review: dict, files: dict[str, qa_diff.FileDiff]) -> tuple[dict, li
             f"{MAX_FINDINGS}. No se recorta: es señal de que ignoró las reglas."
         )
 
-    summary = as_text(review.get("summary"), MAX_SUMMARY_CHARS)
-    if not summary:
-        raise Rejected("`summary` vacío: la review no diría nada.")
-
     positives = [as_text(p, 400) for p in (review.get("positives") or [])
                  if isinstance(p, str) and as_text(p, 400)][:5]
 
@@ -123,9 +119,9 @@ def validate(review: dict, files: dict[str, qa_diff.FileDiff]) -> tuple[dict, li
             raise Rejected(f"{where} no es un objeto.")
 
         criterion = str(f.get("criterion") or "").strip().upper()
-        if criterion == "QA-08":
-            raise Rejected("QA-08 no lo revisa el agente (se resuelve con la "
-                           "config del repo). El modelo ignoró la regla.")
+        if criterion in ("QA-05", "QA-08"):
+            raise Rejected(f"{criterion} no lo revisa el agente. El modelo "
+                           "ignoró la regla.")
         if criterion not in VALID_CRITERIA:
             raise Rejected(f"{where}: criterio desconocido {criterion!r}. "
                            f"Válidos: {', '.join(sorted(VALID_CRITERIA))}.")
@@ -133,10 +129,6 @@ def validate(review: dict, files: dict[str, qa_diff.FileDiff]) -> tuple[dict, li
         severity = str(f.get("severity") or "").strip().upper()
         if severity not in VALID_SEVERITIES:
             raise Rejected(f"{where}: severidad desconocida {severity!r}.")
-        if criterion == "QA-05" and severity in ("BLOCKER", "MAJOR"):
-            severity = "NIT"
-            notes.append("QA-05 se bajó a NIT: es una recomendación, nunca bloqueante.")
-
         message = as_text(f.get("message"), MAX_MESSAGE_CHARS)
         if not message:
             raise Rejected(f"{where}: mensaje vacío.")
@@ -184,8 +176,7 @@ def validate(review: dict, files: dict[str, qa_diff.FileDiff]) -> tuple[dict, li
     for i, e in enumerate(clean, start=1):
         e["id"] = i
 
-    return {"version": 1, "summary": summary, "positives": positives,
-            "findings": clean}, notes
+    return {"version": 1, "positives": positives, "findings": clean}, notes
 
 
 def main() -> int:
