@@ -228,7 +228,6 @@ def main() -> int:
     print(f"Debugging:            {len(facts['debugStatements'])}")
     print(f"Márgenes:             {len(facts['marginUsages'])}")
     print(f"Assets pesados:       {len(facts['largeAssets'])}")
-    print(f"Cambio visual:        {visual}")
     for w in dep_warnings:
         print(f"⚠️  {w}")
 
