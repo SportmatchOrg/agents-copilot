@@ -61,6 +61,22 @@ class FromLlm(unittest.TestCase):
         r = ar.from_llm('Acá va:\n{"status": "warn", "summary": "ojo"}\nSaludos', "a", "A")
         self.assertEqual(r["status"], "warn")
 
+    def test_think_block_with_braces_before_json(self):
+        text = '<think>el formato es {status, summary}… pienso {a}</think>\n{"status": "ok", "summary": "bien"}'
+        self.assertEqual(ar.from_llm(text, "a", "A")["status"], "ok")
+
+    def test_prose_with_braces_after_json(self):
+        text = 'Listo:\n{"status": "warn", "summary": "ojo"}\nNota: usé {llaves} en el texto.'
+        self.assertEqual(ar.from_llm(text, "a", "A")["status"], "warn")
+
+    def test_bare_findings_list_infers_status(self):
+        text = '[{"severity": "important", "title": "AC vago", "ref": "SPO-1"}]'
+        r = ar.from_llm(text, "a", "A")
+        self.assertEqual((r["status"], r["findings"][0]["ref"]), ("warn", "SPO-1"))
+
+    def test_missing_status_without_findings_is_ok(self):
+        self.assertEqual(ar.from_llm('{"summary": "nada para marcar", "findings": []}', "a", "A")["status"], "ok")
+
     def test_llm_unavailable_is_unknown(self):
         r = ar.from_llm("LLM_UNAVAILABLE: todos los modelos fallaron; HTTP 429", "a", "A")
         self.assertEqual(r["status"], "unknown")

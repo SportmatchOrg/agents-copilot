@@ -163,10 +163,12 @@ class Dor(unittest.TestCase):
 
     def test_llm_down_still_reports_structure(self):
         data = sprint.dor_data([ticket("SPO-2", "unstarted", "nada")])
-        r = sprint.dor_finish({"status": "unknown", "summary": "El modelo no respondió"}, data)
+        r = sprint.dor_finish({"status": "unknown", "summary": "Formato inesperado.",
+                               "sections": [{"title": "Respuesta cruda", "body": "lo que dijo"}]}, data)
         self.assertEqual(r["status"], "fail")
         self.assertFalse(r["ai"])
-        self.assertEqual(r["sections"][0]["title"], "Aviso")
+        self.assertEqual([x["title"] for x in r["sections"]], ["Aviso", "Respuesta cruda"])
+        self.assertIn("Formato inesperado.", r["sections"][0]["body"])
 
 
 class WeeklyFinish(unittest.TestCase):

@@ -343,9 +343,11 @@ def dor_finish(report: dict, data: list[dict]) -> dict:
     estructura, y recalcula estado y resumen con código."""
     llm_ok = report.get("status") != "unknown"
     findings = dor_findings(data) + (list(report.get("findings") or []) if llm_ok else [])
+    # Si el modelo falló, se avisa y se conserva lo que haya devuelto (plegado).
     sections = [] if llm_ok else [{"title": "Aviso", "body":
-                "El modelo no respondió: solo se chequeó la estructura (AC, referencia y estimación), "
-                "no si los criterios son verificables."}]
+                f"{report.get('summary') or 'El modelo no respondió.'} Solo se chequeó la estructura "
+                "(AC, referencia y estimación), no si los criterios son verificables."}] + \
+        [sec for sec in report.get("sections") or [] if sec.get("title") == "Respuesta cruda"]
     report = ar.normalize({"status": "ok", "findings": findings, "sections": sections,
                            "ai": llm_ok}, report.get("agent"), report.get("title"))
     sevs = {f["severity"] for f in report["findings"]}

@@ -196,8 +196,10 @@ con *Automatically delete head branches*.
 | Acceso a los workflows | `agents-copilot` → Settings → Actions → General → Access: permitir que los repos de la organización usen sus workflows. Sin esto el `uses:` del wrapper falla. |
 | Auto-delete de branches | Repo de desarrollo → Settings → General → Pull Requests. Resuelve QA-08. |
 
-**Modelo.** Se pasa como input del workflow (`llm_model`), nunca hardcodeado. Default:
-`minimax/minimax-m3:free` vía OpenRouter. Cambiarlo es editar una línea del wrapper.
+**Modelo.** Se pasa como input del workflow (`llm_model`) o con la variable `LLM_MODEL`, nunca
+hardcodeado. En `sportmatch` es `openrouter/free` (el router de modelos gratis de OpenRouter).
+Evitá fijar un slug `:free` puntual: OpenRouter los da de baja sin aviso (`minimax/minimax-m3:free`
+devuelve 404 desde octubre).
 
 > ⚠️ La cuenta **free** de OpenRouter tiene un tope de ~50 requests/día en modelos `:free`, y
 > cada PR consume 2 (Scout + Reviewer): unas 25 PRs por día. Con USD 10 de crédito el tope sube

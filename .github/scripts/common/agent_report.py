@@ -167,6 +167,10 @@ def from_llm(text: str, agent: str, title: str) -> dict:
                           "summary": "El modelo respondió en un formato inesperado; no se publica nada.",
                           "sections": [{"title": "Respuesta cruda", "body": text[:6000]}]},
                          agent, title)
+    if "status" not in data:
+        # Respondió el contenido pero no el estado: se deduce de los hallazgos.
+        sevs = {str(f.get("severity", "")).lower() for f in data.get("findings") or [] if isinstance(f, dict)}
+        data = dict(data, status="fail" if "urgent" in sevs else "warn" if sevs else "ok")
     report = normalize(data, agent, title)
     if report["status"] == "unknown" and not report["summary"]:
         report["summary"] = "El modelo no indicó un estado."
@@ -174,15 +178,29 @@ def from_llm(text: str, agent: str, title: str) -> dict:
 
 
 def _extract_json(text: str) -> dict | None:
-    cleaned = re.sub(r"^```[a-zA-Z]*\s*$", "", text, flags=re.M).strip()
-    for candidate in (cleaned, cleaned[cleaned.find("{"):cleaned.rfind("}") + 1]):
+    """Encuentra el reporte en lo que devolvió el modelo, aunque venga sucio.
+
+    Los modelos gratis del router cambian sin aviso y no todos respetan el
+    "solo JSON": algunos razonan en <think>…</think>, otros envuelven en ```,
+    otros agregan texto antes o después, y otros devuelven solo la lista de
+    findings. Se toma el primer objeto JSON que parezca un reporte.
+    """
+    cleaned = re.sub(r"<think>.*?</think>", "", text, flags=re.S | re.I)
+    cleaned = re.sub(r"^```[a-zA-Z]*\s*$", "", cleaned, flags=re.M).strip()
+    keys = {"status", "summary", "findings", "sections"}
+    decoder = json.JSONDecoder()
+    first_list = None
+    for m in re.finditer(r"[{\[]", cleaned):
         try:
-            data = json.loads(candidate)
-        except (json.JSONDecodeError, ValueError):
+            obj, _ = decoder.raw_decode(cleaned, m.start())
+        except ValueError:
             continue
-        if isinstance(data, dict):
-            return data
-    return None
+        if isinstance(obj, dict) and keys & obj.keys():
+            return obj
+        if (first_list is None and isinstance(obj, list) and obj
+                and all(isinstance(x, dict) and "title" in x for x in obj)):
+            first_list = obj
+    return {"findings": first_list} if first_list is not None else None
 
 
 # --------------------------------------------------------------------------
@@ -505,6 +523,11 @@ def main(argv: list[str] | None = None) -> int:
     elif args.cmd == "from-llm":
         text = Path(args.inp).read_text(encoding="utf-8") if Path(args.inp).exists() else ""
         report = from_llm(text, args.agent, args.title)
+        if report["status"] == "unknown" and text and not text.startswith("LLM_UNAVAILABLE"):
+            # Queda en el log para entender qué devolvió el modelo.
+            print("::group::Respuesta cruda del modelo (formato inesperado)")
+            print(text[:6000])
+            print("::endgroup::")
         _save(report, args.out)
         print(f"{args.agent}: {report['status']} — {report['summary']}")
     elif args.cmd == "new":
