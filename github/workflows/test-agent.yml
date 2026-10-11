@@ -50,3 +50,4 @@ jobs:
     secrets:
       LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
       LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
+      LLM_API_KEY_FALLBACK: ${{ secrets.LLM_API_KEY_FALLBACK }}

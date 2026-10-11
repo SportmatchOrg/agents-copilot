@@ -1,20 +1,26 @@
 #!/usr/bin/env python3
-"""Arma el reporte en markdown: lo que va como comentario en la PR y al resumen
-del job. Solo publica hallazgos del baseline y del agente CONFIRMADOS por el
-replay; los descartados figuran como conteo, para que se vea que existieron.
+"""Arma el reporte con el formato común de los agentes
+(.github/scripts/common/agent_report.py): un `report.json` que después publica
+`agent_report.py publish` en la PR y en el resumen del job.
 
-Uso:  report.py --ctx <dir>        Deja  $CTX/report.md
+Solo entran hallazgos del baseline y del agente CONFIRMADOS por el replay; los
+descartados figuran como conteo, para que se vea que existieron.
+
+Uso:  report.py --ctx <dir>        Deja  $CTX/report.json  (y $CTX/report.md, para correr local)
 """
 
 from __future__ import annotations
 
 import argparse
 import json
+import sys
 from pathlib import Path
 
-MARKER = "<!-- agente:security-agent -->"
-ORDER = {"alta": 0, "media": 1, "baja": 2}
-ICON = {"alta": "🔴", "media": "🟠", "baja": "🟡"}
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "common"))
+import agent_report as ar  # noqa: E402
+
+# Severidad propia del agente → severidad del formato común.
+SEVERITY = {"alta": "urgent", "media": "important", "baja": "minor"}
 
 
 def _load(path: Path, default):
@@ -41,50 +47,56 @@ def main() -> int:
     agent = _load(ctx / "agent-output.json", {})
     endpoints = _load(ctx / "endpoints.json", [])
 
-    findings = sorted(baseline["findings"] + validated["confirmed"],
-                      key=lambda f: ORDER.get(f["severity"], 9))
-
-    out = [MARKER, "## 🔒 Security Agent", ""]
-    if findings:
-        out.append(f"**{len(findings)} hallazgo(s)** sobre {len(endpoints)} endpoints.")
-    else:
-        out.append(f"Sin hallazgos sobre {len(endpoints)} endpoints.")
-    out.append("")
-
+    findings = baseline["findings"] + validated["confirmed"]
+    common = []
     for f in findings:
-        where = f.get("endpoint") or f.get("location") or ""
-        tag = f.get("check") or "agente"
-        out += [f"### {ICON.get(f['severity'], '⚪')} {f['title']}",
-                f"`{where}` · {tag} · severidad **{f['severity']}**", ""]
+        detail = []
         if f.get("location") and f.get("endpoint"):
-            out.append(f"Código: `{f['location']}`")
+            detail.append(f"Código: `{f['location']}`")
         if f.get("detail"):
-            out.append(f["detail"])
+            detail.append(f["detail"])
         if f.get("expected"):
-            out.append(f"\n**Esperado:** {f['expected']}")
+            detail.append(f"**Esperado:** {f['expected']}")
         ev = f.get("evidence")
         if isinstance(ev, list) and ev:
-            out += ["", "**Reproducción** (verificada desde una base limpia):"] + [_call(c) for c in ev]
+            detail.append("\n".join(["**Reproducción** (verificada desde una base limpia):"] + [_call(c) for c in ev]))
         elif isinstance(ev, dict) and ev.get("request"):
-            out += ["", "**Evidencia:**", _call(ev)]
-        out.append("")
+            detail.append("**Evidencia:**\n" + _call(ev))
+        common.append({
+            "severity": SEVERITY.get(f["severity"], "minor"),
+            "title": f"{f['title']} ({f.get('check') or 'agente'})",
+            "ref": f.get("endpoint") or f.get("location") or "",
+            "detail": "\n\n".join(detail),
+        })
+
+    sevs = {f["severity"] for f in common}
+    status = "fail" if "urgent" in sevs else "warn" if "important" in sevs else "ok"
+    n = len(endpoints)
+    if common:
+        counts = ", ".join(f"{len([f for f in common if f['severity'] == s])} {ar.SEVERITY_LABEL[s].lower()}"
+                           for s in ar.SEVERITIES if any(f["severity"] == s for f in common))
+        summary = f"{len(common)} hallazgo(s) sobre {n} endpoints: {counts}."
+    else:
+        summary = f"Sin hallazgos sobre {n} endpoints."
 
     probes = len(baseline.get("probes") or [])
-    out += ["<details><summary>Cómo se obtuvo</summary>", "",
-            f"- Chequeos automáticos: {probes} requests (401 sin sesión, 400 con campo de más, "
-            f"guards, rutas pisadas, SQL crudo).",
-            f"- Agente: {agent.get('outcome', 'no corrió')} · {agent.get('iterations', 0)} acciones · "
-            f"{agent.get('requests', 0)} requests · modelos: {', '.join(agent.get('modelsUsed') or []) or '—'}.",
-            f"- Hallazgos del agente descartados por no reproducirse: {len(validated['discarded'])}.",
-            "- Corre contra una copia local del back con base descartable y autenticación "
-            "simulada. No prueba la verificación de tokens de Firebase.",
-            ""]
+    how = [f"- Chequeos automáticos: {probes} requests (401 sin sesión, 400 con campo de más, "
+           f"guards, rutas pisadas, SQL crudo).",
+           f"- Agente: {agent.get('outcome', 'no corrió')} · {agent.get('iterations', 0)} acciones · "
+           f"{agent.get('requests', 0)} requests · modelos: {', '.join(agent.get('modelsUsed') or []) or '—'}.",
+           f"- Hallazgos del agente descartados por no reproducirse: {len(validated['discarded'])}.",
+           "- Corre contra una copia local del back con base descartable y autenticación "
+           "simulada. No prueba la verificación de tokens de Firebase."]
     if agent.get("summary"):
-        out += [f"Resumen del agente: {agent['summary']}", ""]
-    out.append("</details>")
+        how += ["", f"Resumen del agente: {agent['summary']}"]
 
-    (ctx / "report.md").write_text("\n".join(out) + "\n", encoding="utf-8")
-    print(f"reporte: {len(findings)} hallazgos → {ctx / 'report.md'}")
+    report = ar.normalize({"status": status, "summary": summary, "findings": common,
+                           "sections": [{"title": "Cómo se obtuvo", "body": "\n".join(how)}],
+                           "ai": bool(agent)},
+                          "security-agent", "Security Agent")
+    (ctx / "report.json").write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
+    (ctx / "report.md").write_text(ar.render_github(report), encoding="utf-8")
+    print(f"reporte: {status} · {len(common)} hallazgos → {ctx / 'report.json'}")
     return 0
 
 

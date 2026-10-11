@@ -10,7 +10,7 @@ y un reintento con reprompt cuando el modelo devuelve JSON inválido.
 Provider-agnostic, igual que llm.sh:
   LLM_API_KEY   (secret, obligatorio)
   LLM_BASE_URL  (default: OpenRouter chat/completions)
-  LLM_MODEL     (default: minimax/minimax-m3:free)
+  LLM_MODEL     (default: DEFAULT_MODEL, abajo)
 """
 
 from __future__ import annotations

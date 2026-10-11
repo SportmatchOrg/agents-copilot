@@ -1,4 +1,4 @@
-name: Security Agent (reusable)
+name: ↳ Security Agent
 
 # Revisa la seguridad de la API del repo llamador en dos capas:
 #
@@ -49,6 +49,9 @@ on:
         description: Fallback si no hay SECURITY_LLM_API_KEY. Sin ninguna, corre solo el baseline.
         required: false
       LLM_API_KEY_FALLBACK:
+        required: false
+      DISCORD_WEBHOOK:
+        description: Opcional. Avisa cuando cambia el estado de seguridad de una PR.
         required: false
 
 permissions:
@@ -136,29 +139,31 @@ jobs:
         if: inputs.run_agent
         run: python3 "$SCRIPTS/replay.py" --ctx "$CTX"
 
-      - name: Reporte
+      # Formato común (.github/scripts/common/agent_report.py). En la PR: un solo
+      # comentario, editado en cada push, y solo si hay hallazgos o si ya había
+      # uno (para que pase a verde cuando se arreglan). A mano desde Actions no
+      # hay PR: el reporte queda en el resumen de la corrida.
+      - name: Publicar
         if: always()
-        run: |
-          python3 "$SCRIPTS/report.py" --ctx "$CTX" || true
-          cat "$CTX/report.md" >> "$GITHUB_STEP_SUMMARY" 2>/dev/null \
-            || echo "El agente no llegó a producir un reporte." >> "$GITHUB_STEP_SUMMARY"
-
-      # Un solo comentario por PR, editado en el lugar en cada push.
-      - name: Comentar en la PR
-        if: github.event.pull_request.number
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK }}
           PR: ${{ github.event.pull_request.number }}
-          REPO: ${{ github.repository }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_URL: ${{ github.event.pull_request.html_url }}
         run: |
-          [ -f "$CTX/report.md" ] || exit 0
-          MARKER='<!-- agente:security-agent -->'
-          EXISTING=$(gh api "repos/$REPO/issues/$PR/comments" --paginate \
-            --jq "[.[] | select(.body | startswith(\"$MARKER\"))] | last | .id // empty")
-          if [ -n "$EXISTING" ]; then
-            gh api "repos/$REPO/issues/comments/$EXISTING" -X PATCH -F body=@"$CTX/report.md" >/dev/null
+          python3 "$SCRIPTS/report.py" --ctx "$CTX" || true
+          if [ ! -f "$CTX/report.json" ]; then
+            echo "El agente no llegó a producir un reporte." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          AR="${{ github.workspace }}/agents-copilot/.github/scripts/common/agent_report.py"
+          if [ -n "$PR" ]; then
+            python3 "$AR" publish --report "$CTX/report.json" --pr "$PR" \
+              --comment-policy not-ok-or-existing --discord-policy changed \
+              --context "PR #$PR · $PR_TITLE" --link "$PR_URL"
           else
-            gh pr comment "$PR" --repo "$REPO" --body-file "$CTX/report.md"
+            python3 "$AR" publish --report "$CTX/report.json" --discord-policy never
           fi
 
       - name: Apagar el blanco

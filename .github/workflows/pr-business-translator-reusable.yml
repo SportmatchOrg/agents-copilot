@@ -1,11 +1,17 @@
-name: Traductor de PR a negocio — reusable
+name: ↳ Traductor de PR a negocio
 
-# Al abrir/actualizar un PR del repo llamador, traduce el cambio a lenguaje de
-# negocio (qué hace, riesgo, qué probar) y lo postea como
-# comentario del PR + aviso en Discord.
+# Lógica del agente. El repo llamador solo tiene un wrapper que dice CUÁNDO
+# corre (github/workflows/pr-business-translator.yml).
 #
-# Toda la lógica vive acá. El repo llamador solo necesita un wrapper de
-# ~15 líneas (ver github/workflows/pr-business-translator.yml).
+# Traduce el PR para alguien que no lee código: qué hace, qué riesgo tiene y
+# qué probar. Publica con el formato común (.github/scripts/common/agent_report.py):
+#   - PR: un comentario, editado en el lugar en cada push.
+#   - Discord: una sola vez por PR, en la primera evaluación, y solo si el
+#     riesgo no es bajo. El nivel de riesgo es una opinión del modelo que varía
+#     entre pushes (y entre modelos del router): avisar cada cambio era ruido.
+#     La versión al día está siempre en el comentario de la PR.
+#   - PRs de release (head = dev): no corre. Juntan el trabajo de muchas PRs
+#     que ya se tradujeron una por una.
 
 on:
   workflow_call:
@@ -14,6 +20,10 @@ on:
         description: Rama o tag de agents-copilot con la lógica del agente.
         type: string
         default: main
+      skip_release_prs:
+        description: No correr en las PRs cuyo head es `dev` (releases dev → main).
+        type: boolean
+        default: true
     secrets:
       LLM_API_KEY:
         description: API key del proveedor LLM (Gemini u otro OpenAI-compatible).
@@ -29,17 +39,17 @@ permissions:
 jobs:
   pr-business-translator:
     runs-on: ubuntu-latest
+    if: ${{ !(inputs.skip_release_prs && github.event.pull_request.head.ref == 'dev') }}
 
     concurrency:
       group: pr-business-translator-${{ github.repository }}-${{ github.event.pull_request.number }}
       cancel-in-progress: true
 
-    steps:
-      - name: Checkout del repo llamador
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
+    env:
+      AR: _agents-copilot/.github/scripts/common/agent_report.py
+      PR: ${{ github.event.pull_request.number }}
 
+    steps:
       - name: Checkout de agents-copilot (lógica del agente)
         uses: actions/checkout@v4
         with:
@@ -51,83 +61,43 @@ jobs:
       - name: Obtener diff y título del PR
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          PR: ${{ github.event.pull_request.number }}
         run: |
-          gh pr view "$PR" --json title,body,headRefName > meta.json
-          gh pr diff "$PR" > diff.txt || echo "(sin diff)" > diff.txt
+          gh pr view "$PR" --repo "$GITHUB_REPOSITORY" --json title,body,headRefName > meta.json
+          gh pr diff "$PR" --repo "$GITHUB_REPOSITORY" > diff.txt || echo "(sin diff)" > diff.txt
 
       - name: Armar el prompt
         run: |
           {
             echo "Sos el Traductor de PRs a Negocio de SportMatch. Traducí este PR para alguien que NO lee código (PM/PO). Español, sin jerga."
-            echo "Secciones EXACTAS, son 3 y ninguna más: 1) 'Qué hace este cambio' — máximo 3 líneas. 2) 'Riesgo' — bajo/medio/alto + por qué, máximo 3 líneas; ojo con auth, datos personales RNF-03 y flujos Must. 3) 'Qué probar antes de aprobar' — exactamente los 3 checks MÁS IMPORTANTES, ni uno más, en lenguaje de usuario; si se te ocurren más, elegí los 3 que más probabilidad tienen de encontrar un problema."
-            echo "NO incluyas una sección de historia/RF: de la trazabilidad se encarga el DoD checker."
-            echo "Los límites de líneas son techos duros: si te pasás, cortá. Todo el comentario entra en una pantalla."
+            echo "Cómo llenar el formato:"
+            echo "- summary: qué hace este cambio, en 1 o 2 líneas de lenguaje de usuario."
+            echo "- status según el riesgo: ok = bajo, warn = medio, fail = alto. Ojo con auth, datos personales (RNF-03), flujos Must y migraciones de base."
+            echo "- findings: los motivos del riesgo, 0 a 3. Riesgo bajo => findings: []. urgent solo si el riesgo es alto."
+            echo "- sections: exactamente una, {\"title\": \"Qué probar antes de aprobar\", \"open\": true, \"body\": lista numerada con los 3 checks MÁS importantes, en lenguaje de usuario}."
+            echo "- No incluyas historia/RF: de la trazabilidad se encarga el DoD checker."
+            echo ""
+            python3 "$AR" contract
             echo ""
             echo "=== META ==="; cat meta.json
             echo ""
             echo "=== DIFF ==="; head -c 60000 diff.txt
           } > prompt.txt
 
-      - name: Generar traducción (LLM OpenAI-compatible, default Gemini)
-        id: ai
+      - name: Llamar al modelo
         env:
           LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
           LLM_BASE_URL: ${{ vars.LLM_BASE_URL }}
           LLM_MODEL: ${{ vars.LLM_MODEL }}
           LLM_FALLBACK_MODELS: ${{ vars.LLM_FALLBACK_MODELS }}
-        run: |
-          OUT=$(bash _agents-copilot/github/scripts/llm.sh prompt.txt)
-          {
-            echo 'response<<EOF_LLM'
-            echo "$OUT"
-            echo 'EOF_LLM'
-          } >> "$GITHUB_OUTPUT"
+        run: python3 "$AR" ask --prompt prompt.txt --agent pr-business-translator --title "Resumen para negocio" --out report.json
 
-      - name: Comentar el PR
+      - name: Publicar
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          PR: ${{ github.event.pull_request.number }}
-          RESPONSE: ${{ steps.ai.outputs.response }}
-        run: |
-          if printf '%s' "$RESPONSE" | grep -q "^LLM_UNAVAILABLE"; then
-            echo "LLM no disponible, no se comenta el PR: $RESPONSE"
-            exit 0
-          fi
-          MARKER='<!-- agente:pr-business-translator -->'
-          {
-            echo "$MARKER"
-            printf '### 📊 Resumen para negocio (IA)\n\n%s\n\n---\n*Generado automáticamente. La decisión es humana ("Lab4 no codifica").*' "$RESPONSE"
-          } > body.md
-          # Busca el comentario propio por marcador, no "el último de este actor": el Traductor y
-          # DoD checker postean como el mismo bot (GITHUB_TOKEN) y `--edit-last` termina
-          # pisándose entre sí cuando los dos corren sobre el mismo PR (verificado en sandbox).
-          EXISTING=$(gh api "repos/${{ github.repository }}/issues/$PR/comments" --paginate \
-            --jq "[.[] | select(.body | startswith(\"$MARKER\"))] | last | .id // empty")
-          if [ -n "$EXISTING" ]; then
-            gh api "repos/${{ github.repository }}/issues/comments/$EXISTING" -X PATCH -F body=@body.md >/dev/null
-          else
-            gh pr comment "$PR" --body-file body.md
-          fi
-
-      - name: Avisar por Discord
-        env:
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK }}
-          RESPONSE: ${{ steps.ai.outputs.response }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
           PR_URL: ${{ github.event.pull_request.html_url }}
         run: |
-          python3 - <<'PY'
-          import json, os, urllib.request
-          resp = os.environ["RESPONSE"]
-          hook = os.environ.get("DISCORD_WEBHOOK_URL", "")
-          if not hook:
-              raise SystemExit(0)
-          if resp.startswith("LLM_UNAVAILABLE"):
-              msg = f"⚠️ Traductor de PR a negocio: LLM no disponible ahora mismo, no se tradujo {os.environ['PR_URL']} en este run. ({resp})"
-          else:
-              msg = f"📊 Nuevo PR traducido a negocio: {os.environ['PR_URL']}\n\n" + resp
-          data = json.dumps({"content": msg[:1900]}).encode()
-          req = urllib.request.Request(hook, data=data,
-                                       headers={"Content-Type": "application/json", "User-Agent": "Mozilla/5.0 (compatible; SportMatchBot/1.0)"})
-          urllib.request.urlopen(req)
-          PY
+          python3 "$AR" publish --report report.json --pr "$PR" \
+            --discord-policy first \
+            --context "PR #$PR · $PR_TITLE" --link "$PR_URL"

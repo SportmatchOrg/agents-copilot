@@ -41,8 +41,7 @@ de IA como mecanismo de reporting.
 
 | Archivo | Para qué |
 |---|---|
-| `.github/workflows/kpi-report.yml` | Disparador: botón "Run workflow" con los inputs. El `schedule` está comentado |
-| `.github/workflows/kpi-report-reusable.yml` | El job: corre el script, sube el artifact y avisa a Discord si falla |
+| `.github/workflows/kpi-report.yml` | Botón "Run workflow" con los inputs, y el job: corre el script, sube el artifact y avisa a Discord si falla. El `schedule` está comentado |
 | `.github/scripts/kpi-report/report.py` | Lo que ejecuta el job: llamadas HTTP, publicación y aviso |
 | `.github/scripts/kpi-report/kpi_lib.py` | Las cuentas y validaciones (p95, mediana, fechas, armado del lote), sin red |
 | `.github/scripts/kpi-report/kpi-catalog.json` | Los 10 KPIs con id, tipo, unidad y descripción. Es lo que se da de alta en el dashboard |

@@ -32,18 +32,45 @@ Los agentes 1, 3, 4, 5.1 y 7 vienen en **dos formas** que no se pisan:
 
 Qué evento dispara cada workflow:
 
-| Workflow | Evento | Salida |
-|----------|--------|--------|
-| `pr-business-translator.yml` | Al abrir/actualizar un PR | Comentario en el PR (se edita in-place en cada push) + Discord |
-| `dod-checker.yml` | PR abierto / listo para revisión | Veredicto DoD como comentario (se edita in-place) + comentario en el ticket de Linear real (o se crea uno si el PR no referencia ninguno) + Discord |
-| `context-curator.yml` | `push` a dev/main | Issue si detecta drift de AGENTS.md (actualiza el existente si ya había uno abierto, no duplica) + Discord |
-| `repo-onboarding.yml` | Cron mensual (día 1) | PR con `docs/ONBOARDING.md` actualizado, para revisión humana + Discord |
-| `dor-readiness.yml` | Cron semanal (lunes) | Digest de tickets del backlog sin AC/estimación/RF → Discord |
-| `qa-review.yml` | PR abierta / actualizada / lista para revisión | **Pending review** (borrador visible solo para el QA) con resumen, positivos y hasta 5 findings |
-| `pr-review` (nativo) | Cada PR | Comentarios inline de Copilot |
-| `sprint-health.yml` | Cron diario | Discord |
-| `weekly-status.yml` | Cron semanal | Commit del reporte + Discord |
-| `security-agent.yml` | PR a dev/main que toca `back/` · label `security-agent` · manual | Comentario en la PR (se edita in-place) con los hallazgos de seguridad de la API |
+| Workflow | Evento | Salida | Discord |
+|----------|--------|--------|---------|
+| `pr-business-translator.yml` | PR abierto/actualizado (no en releases `dev`→`main`) | Comentario en el PR, editado en el lugar | Una sola vez por PR, si el riesgo no es bajo |
+| `dod-checker.yml` | PR abierto/actualizado (no en releases) | Comentario en el PR + comentario en el ticket de Linear **solo cuando cambia el veredicto** | Solo si cambia el veredicto |
+| `security-agent.yml` | PR que toca `back/` · label `security-agent` · manual | Comentario en el PR solo si hay hallazgos (o si ya había uno, para pasarlo a verde) | Solo si cambia el estado |
+| `qa-review.yml` | PR abierta / actualizada / lista para revisión | **Pending review** (borrador visible solo para el QA) | — |
+| `context-curator.yml` | Push que toca AGENTS.md/manifiestos/workflows · lunes · manual | Un issue, solo si hay drift (se reemplaza su body, no acumula) | Solo si cambia el estado |
+| `sprint-health.yml` | Lun–vie | Resumen de la corrida (sin modelo) | Solo si hay algo 🟡/🔴 |
+| `dor-readiness.yml` | Lunes | Resumen de la corrida | Solo si hay tickets con problemas |
+| `weekly-status.yml` | Viernes | Resumen de la corrida + artifact (90 días) | Siempre (titular + riesgos + link) |
+| `repo-onboarding.yml` | Día 1 de cada mes | PR con `docs/ONBOARDING.md` | Cuando abre el PR |
+| `pr-review` (nativo) | Cada PR | Comentarios inline de Copilot | — |
+
+### Formato común de salida
+
+Todos los agentes publican con **un solo formato**, definido en
+[`.github/scripts/common/agent_report.py`](.github/scripts/common/agent_report.py). Funciona como
+una interfaz: cada agente produce un `report.json` con `status` (🟢 ok · 🟡 warn · 🔴 fail · ⚪ unknown),
+un `summary` de una o dos líneas, `findings` con severidad (`urgent` · `important` · `minor`) y
+`sections` propias del agente. El módulo es el único que sabe dibujarlo:
+
+- **Arriba, siempre:** estado + veredicto en una línea. Si no hay nada urgente ni importante, es casi
+  todo lo que se ve.
+- **A la vista:** solo lo urgente e importante, una línea por hallazgo.
+- **Plegado (`<details>`):** lo menor, la evidencia de cada hallazgo y las secciones del agente.
+- **Discord:** titular + hasta 3 hallazgos + link. Nunca el texto entero, sin previews de links.
+- **Cuándo avisa** (`--discord-policy`): `changed` en las PRs (solo cuando el estado se mueve;
+  `first` en el Traductor, una sola vez, porque su riesgo es una opinión que varía entre pushes),
+  `not-ok` en los programados (solo si hay algo para mirar), `always` en el status semanal.
+- **Si el modelo no responde** (`unknown`): no se pisa el último veredicto ni se avisa; queda un
+  warning en la corrida.
+
+Un agente nuevo solo tiene que: armar su prompt con `agent_report.py contract` al final, llamar a
+`llm.sh`, y publicar con `agent_report.py from-llm` + `agent_report.py publish`. Ver cualquiera de los
+`*-reusable.yml` como ejemplo.
+
+> **Wrapper vs. lógica.** En la lista de Actions de este repo, las entradas con `↳` son la lógica
+> de cada agente (`*-reusable.yml`): no se corren acá, las llaman los wrappers instalados en
+> `sportmatch`. GitHub exige que vivan en `.github/workflows/` sin subcarpetas, por eso aparecen.
 
 ## Estructura y dónde va cada cosa
 
@@ -124,7 +151,7 @@ Esto depende de que la integración nativa GitHub↔Linear esté conectada en el
 
 ### Agente 5.1 — Definition of Ready (`dor-readiness.yml` + chat mode)
 
-Corre semanalmente (lunes) y lee del backlog de Linear los tickets que **todavía no tienen ciclo asignado** (`cycle: null`, estado `backlog`/`unstarted`), evaluando si cada uno tiene AC claros, RF asociado y estimación. Postea un digest en Discord con solo los tickets problemáticos — así el PM los arregla antes de que arranque el sprint, no a mitad de camino. Asume los tipos de estado por defecto de Linear; si el equipo los renombró, ajustar el filtro `state.type` en `dor-readiness.yml`.
+Corre semanalmente (lunes) y lee los tickets del team (`LINEAR_TEAM_KEY`, default `SPO`) en **Backlog** y **Todo**, evaluando si cada uno tiene AC verificables, RF asociado y estimación en la escala 1–4 (la estimación la chequea el script, no el modelo). Avisa por Discord solo si hay tickets con problemas. El team no usa cycles de Linear: los agentes programados identifican el sprint por el `dueDate` compartido (ver `.github/scripts/sprint/sprint.py`).
 
 > **Cambiar de proveedor de LLM sin tocar los workflows:** el script `llm.sh` es *provider-agnostic*. Para usar Groq, OpenRouter, OpenAI, etc., seteá dos **variables** de repo (*Settings → Secrets and variables → Actions → Variables*): `LLM_BASE_URL` y `LLM_MODEL`, y poné la key de ese proveedor en el secret `LLM_API_KEY`. Para mantener OpenRouter sin costo usá `LLM_MODEL=openrouter/free`; además, el cliente agrega ese router como fallback automático cuando detecta OpenRouter o un modelo `:free`. Se pueden ordenar alternativas adicionales con `LLM_FALLBACK_MODELS`, separadas por comas. Los valores por proveedor están documentados en la cabecera de `.github/scripts/llm.sh`.
 
@@ -170,8 +197,10 @@ con *Automatically delete head branches*.
 | Acceso a los workflows | `agents-copilot` → Settings → Actions → General → Access: permitir que los repos de la organización usen sus workflows. Sin esto el `uses:` del wrapper falla. |
 | Auto-delete de branches | Repo de desarrollo → Settings → General → Pull Requests. Resuelve QA-08. |
 
-**Modelo.** Se pasa como input del workflow (`llm_model`), nunca hardcodeado. Default:
-`minimax/minimax-m3:free` vía OpenRouter. Cambiarlo es editar una línea del wrapper.
+**Modelo.** Se pasa como input del workflow (`llm_model`) o con la variable `LLM_MODEL`, nunca
+hardcodeado. En `sportmatch` es `openrouter/free` (el router de modelos gratis de OpenRouter).
+Evitá fijar un slug `:free` puntual: OpenRouter los da de baja sin aviso (`minimax/minimax-m3:free`
+devuelve 404 desde octubre).
 
 > ⚠️ La cuenta **free** de OpenRouter tiene un tope de ~50 requests/día en modelos `:free`, y
 > cada PR consume 2 (Scout + Reviewer): unas 25 PRs por día. Con USD 10 de crédito el tope sube
