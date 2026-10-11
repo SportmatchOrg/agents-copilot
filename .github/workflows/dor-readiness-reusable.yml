@@ -7,9 +7,11 @@ name: ↳ Definition of Ready (digest semanal)
 # cuáles no están listos (sin AC verificables, sin RF, sin estimar, o
 # demasiado grandes). Solo lee y reporta: no mueve ni edita tickets.
 #
-# Antes filtraba por "sin cycle", que en un team sin cycles es TODO el
-# workspace, y sin filtro de team. Ahora: team + estado. La estimación la
-# chequea sprint.py (escala 1–4); el modelo juzga los AC y el RF.
+# La ESTRUCTURA del ticket (sección de AC con checkboxes, referencia RF/WBS,
+# estimación 1–4) la chequea sprint.py sobre el texto completo: son hechos.
+# El modelo solo juzga si los AC que existen son verificables. Antes recibía
+# la descripción cortada a 1500 caracteres, no llegaba a ver la sección de AC
+# (que va después de los Pasos) y marcaba "sin AC" a tickets que sí tenían.
 #
 # Discord: solo si hay tickets con problemas.
 
@@ -67,14 +69,15 @@ jobs:
       - name: Armar el prompt
         run: |
           {
-            echo "Sos el agente Definition of Ready de SportMatch. Evaluá cuáles de estos tickets (Backlog y Todo) NO están listos para que un dev los tome sin preguntar."
-            echo "Por cada ticket: 1) ¿tiene criterios de aceptación verificables (no solo un título)? 2) ¿referencia un RF (RF-01..RF-06) o un paquete WBS? 3) 'flags' ya trae los problemas de estimación calculados (escala 1–4; más de 4 se parte): usalos tal cual."
+            echo "Sos el agente Definition of Ready de SportMatch. Para cada ticket de abajo (Backlog y Todo) te llega su sección de criterios de aceptación ('acceptance_criteria') y unos 'flags' de estructura."
+            echo "Los 'flags' ya están calculados con el texto completo del ticket (falta de AC, de referencia, de estimación) y se reportan solos: NO los repitas como findings."
+            echo "Tu único trabajo: marcar los tickets cuyos criterios de aceptación existen pero NO son verificables (vagos, sin un resultado observable: 'funciona bien', 'se ve lindo')."
+            echo "Que un criterio dependa de QA manual, de capturas o de Figma NO lo hace inverificable. Ante la duda, no lo marques: un falso positivo acá le hace perder tiempo al PM."
             echo "Cómo llenar el formato:"
-            echo "- status: ok = todos listos; warn = hay problemas en Backlog; fail = hay tickets en Todo (sprint en curso) sin AC."
-            echo "- summary: 'N tickets revisados, M con problemas' + el más grave."
-            echo "- findings: SOLO los tickets con algún problema, uno por ticket (no listes los que están bien). title = qué le falta; ref = el identifier. urgent = sin AC estando en Todo; important = sin AC o sin RF en Backlog, o estimación a partir; minor = el resto."
+            echo "- status: ok si no marcaste ninguno; warn si marcaste alguno."
+            echo "- summary: una oración (el resumen final lo arma el código)."
+            echo "- findings: uno por ticket marcado. title = qué criterio es vago y por qué, en una línea corta; ref = el identifier; severity = important (minor si es un detalle)."
             echo "- sections: []."
-            echo "Es una señal para el PM antes de planning, no una crítica al equipo."
             echo ""
             python3 "$AR" contract
             echo ""
@@ -95,6 +98,7 @@ jobs:
         run: |
           python3 "$AR" from-llm --agent dor-readiness --title "Definition of Ready" \
             --in response.txt --out report.json
+          python3 _agents-copilot/.github/scripts/sprint/sprint.py dor-finish --report report.json --data data.json
           python3 "$AR" publish --report report.json \
             --discord-policy not-ok \
             --context "backlog de Linear" \

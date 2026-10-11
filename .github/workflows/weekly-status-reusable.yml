@@ -10,6 +10,7 @@ name: ↳ Status Report semanal
 #
 # Dónde queda:
 #   - El informe completo: en el resumen de la corrida y como artifact (90 días).
+#     Arriba solo estado, veredicto y riesgos; métricas y secciones, plegadas.
 #   - Discord: el titular + los riesgos + el link a la corrida, siempre (es
 #     el reporte que alguien espera leer el viernes).
 # Ya no se commitea a `dev`: la branch protection rechazaba el push del bot y
@@ -76,9 +77,9 @@ jobs:
             echo "Reglas: una historia está completada solo si su ticket está Done. No inventes números: las métricas ya están calculadas en 'metrics' y se agregan solas al informe; no las repitas en una tabla."
             echo "Cómo llenar el formato:"
             echo "- status (RAG): ok = el sprint en curso va en tiempo; warn = hay desvío recuperable; fail = algo comprometido no va a entrar."
-            echo "- summary: el estado general en una o dos líneas."
-            echo "- findings: riesgos y blockers activos (urgent = compromete la entrega; important = hay que seguirlo). Arrastre incluido."
-            echo "- sections, todas con open: true y en este orden: 'Avance de la semana' (lo completado, con su identifier), 'Entregables / demo mostrable', 'Próxima semana'."
+            echo "- summary: el estado general en UNA oración corta (hasta 160 caracteres)."
+            echo "- findings: riesgos y blockers activos, máximo 4 (urgent = compromete la entrega; important = hay que seguirlo). Arrastre incluido. ref = solo los identifiers (SPO-123)."
+            echo "- sections, en este orden: 'Avance de la semana' (lo completado, con su identifier), 'Entregables / demo mostrable', 'Próxima semana'. Se muestran plegadas."
             echo ""
             python3 "$AR" contract
             echo ""

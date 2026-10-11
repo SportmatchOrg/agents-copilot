@@ -37,6 +37,14 @@ class Normalize(unittest.TestCase):
         self.assertEqual(r["status"], "unknown")
         self.assertEqual(r["findings"], [{"severity": "minor", "title": "x", "ref": "", "detail": ""}])
 
+    def test_clips_runaway_text(self):
+        r = ar.normalize({"status": "warn", "summary": "s" * 900, "findings": [
+            {"title": "t" * 900, "ref": "Sprint cierra 2026-10-15; metrics.sprint_hecho=4/15; prs_mergeados_7d=0"}]})
+        self.assertLessEqual(len(r["summary"]), ar.MAX_SUMMARY)
+        self.assertLessEqual(len(r["findings"][0]["title"]), ar.MAX_TITLE)
+        self.assertLessEqual(len(r["findings"][0]["ref"]), ar.MAX_REF)
+        self.assertTrue(r["findings"][0]["ref"].endswith("…"))
+
     def test_caps_findings(self):
         r = ar.normalize({"status": "warn",
                           "findings": [{"title": f"f{i}"} for i in range(40)]})

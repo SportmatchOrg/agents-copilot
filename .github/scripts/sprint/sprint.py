@@ -10,6 +10,8 @@ agentes que antes filtraban por `cycle.isActive` no veían nunca nada.
   sprint.py weekly-finish --report report.json --data data.json
                                                          agrega las métricas calculadas
   sprint.py dor-data    --team SPO --out data.json       backlog para el DoR
+  sprint.py dor-finish  --report report.json --data data.json
+                                                         suma los chequeos de estructura al juicio del modelo
 
 Los números salen de acá, nunca del modelo: el modelo solo redacta.
 Necesita LINEAR_API_KEY, GH_TOKEN y GITHUB_REPOSITORY.
@@ -20,6 +22,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import subprocess
 import sys
 import urllib.request
@@ -267,23 +270,90 @@ def metrics_section(data: dict) -> dict:
             f"| Arrastre de sprints cerrados | {m['arrastre_tickets']} tickets · {m['arrastre_sp']} SP |",
             f"| Sprint en curso | {m['sprint_hecho']} tickets hechos"
             + (f" · cierra {date.fromisoformat(m['sprint_cierra']):%d/%m}" if m["sprint_cierra"] else "") + " |"]
-    return {"title": "Métricas (calculadas de Linear y GitHub, no del modelo)", "body": "\n".join(rows), "open": True}
+    return {"title": "Métricas (calculadas de Linear y GitHub, no del modelo)", "body": "\n".join(rows)}
+
+
+# Formato de ticket del equipo (CLAUDE.md §5): **Referencia:** … y una sección
+# **Criterios de aceptación** con checkboxes. La sección suele venir DESPUÉS de
+# los Pasos, así que se busca en el texto completo: cortar la descripción por
+# largo hacía que el modelo no la viera y marcara todo "sin AC".
+_AC_RE = re.compile(r"\*\*Criterios de aceptaci[oó]n\*\*:?\s*(.*?)(?=\n\s*\*\*[^*\n]+\*\*|\Z)", re.S | re.I)
+_REF_RE = re.compile(r"\*\*Referencia:?\*\*:?([^\n]*)", re.I)
+_ITEM_RE = re.compile(r"^\s*[-*] (\[[ xX]\] )?\S", re.M)
+
+
+def ticket_structure(description: str) -> dict:
+    desc = description or ""
+    ac = _AC_RE.search(desc)
+    ac_text = ac.group(1).strip() if ac else ""
+    ref = _REF_RE.search(desc)
+    ref_text = ref.group(1).strip() if ref else ""
+    return {"reference": ref_text,
+            "has_rf_or_wbs": bool(re.search(r"\bRF-\d+|\bWBS\b", ref_text or desc[:400])),
+            "has_ac_section": ac is not None,
+            "ac_items": len(_ITEM_RE.findall(ac_text)),
+            "acceptance_criteria": ac_text[:2500]}
+
+
+def weekly_finish(report: dict, data: dict) -> dict:
+    """Agrega las métricas calculadas y pliega TODAS las secciones: arriba quedan
+    solo el estado, el veredicto y los riesgos. El informe completo sigue ahí,
+    a un click."""
+    sections = [metrics_section(data)] + list(report.get("sections") or [])
+    for sec in sections:
+        sec["open"] = False
+    return ar.normalize(dict(report, sections=sections))
 
 
 def dor_data(issues: list[dict]) -> list[dict]:
     out = []
     for i in issues:
+        st = ticket_structure(i.get("description") or "")
         flags = []
+        if not st["has_ac_section"]:
+            flags.append("sin sección de criterios de aceptación")
+        elif st["ac_items"] == 0:
+            flags.append("la sección de criterios de aceptación está vacía")
+        if not st["has_rf_or_wbs"]:
+            flags.append("sin referencia a RF ni WBS")
         if i.get("estimate") is None:
             flags.append("sin estimación")
         elif i["estimate"] > 4:
             flags.append(f"estimación {i['estimate']} > 4: hay que partirlo")
         out.append({"id": i["identifier"], "title": i["title"], "state": i["state"]["name"],
-                    "estimate": i.get("estimate"), "due": i.get("dueDate"),
-                    "labels": [lb["name"] for lb in (i.get("labels") or {}).get("nodes", [])],
-                    "parent": (i.get("parent") or {}).get("identifier"),
-                    "flags": flags, "description": (i.get("description") or "")[:1500]})
+                    "estimate": i.get("estimate"), "reference": st["reference"],
+                    "flags": flags, "acceptance_criteria": st["acceptance_criteria"]})
     return out
+
+
+def dor_findings(data: list[dict]) -> list[dict]:
+    """Los flags de estructura como hallazgos. Son hechos, no opiniones del modelo."""
+    findings = []
+    for t in data:
+        for flag in t["flags"]:
+            missing_ac = "criterios de aceptación" in flag
+            sev = ("urgent" if t["state"] == "Todo" else "important") if missing_ac else \
+                  "important" if ("partirlo" in flag or "estimación" in flag) else "minor"
+            findings.append({"severity": sev, "title": f"{flag[0].upper()}{flag[1:]}", "ref": t["id"]})
+    return findings
+
+
+def dor_finish(report: dict, data: list[dict]) -> dict:
+    """Une el juicio del modelo (¿los AC son verificables?) con los chequeos de
+    estructura, y recalcula estado y resumen con código."""
+    llm_ok = report.get("status") != "unknown"
+    findings = dor_findings(data) + (list(report.get("findings") or []) if llm_ok else [])
+    sections = [] if llm_ok else [{"title": "Aviso", "body":
+                "El modelo no respondió: solo se chequeó la estructura (AC, referencia y estimación), "
+                "no si los criterios son verificables."}]
+    report = ar.normalize({"status": "ok", "findings": findings, "sections": sections,
+                           "ai": llm_ok}, report.get("agent"), report.get("title"))
+    sevs = {f["severity"] for f in report["findings"]}
+    report["status"] = "fail" if "urgent" in sevs else "warn" if "important" in sevs else "ok"
+    flagged = len({f["ref"] for f in report["findings"] if f["severity"] != "minor"})
+    report["summary"] = (f"{len(data)} tickets de Backlog y Todo revisados: todos listos." if not flagged else
+                         f"{len(data)} tickets de Backlog y Todo revisados, {flagged} con algo para corregir.")
+    return report
 
 
 # --------------------------------------------------------------------------
@@ -297,9 +367,10 @@ def main(argv: list[str] | None = None) -> int:
         p = sub.add_parser(name)
         p.add_argument("--team", required=True)
         p.add_argument("--out", required=True)
-    p = sub.add_parser("weekly-finish")
-    p.add_argument("--report", required=True)
-    p.add_argument("--data", required=True)
+    for name in ("weekly-finish", "dor-finish"):
+        p = sub.add_parser(name)
+        p.add_argument("--report", required=True)
+        p.add_argument("--data", required=True)
     args = ap.parse_args(argv)
     now = datetime.now(timezone.utc)
 
@@ -326,9 +397,14 @@ def main(argv: list[str] | None = None) -> int:
         report = json.loads(Path(args.report).read_text(encoding="utf-8"))
         if report.get("status") != "unknown":
             data = json.loads(Path(args.data).read_text(encoding="utf-8"))
-            report["sections"] = [metrics_section(data)] + list(report.get("sections") or [])
-            Path(args.report).write_text(json.dumps(ar.normalize(report), ensure_ascii=False, indent=2),
-                                         encoding="utf-8")
+            report = weekly_finish(report, data)
+            Path(args.report).write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
+    elif args.cmd == "dor-finish":
+        report = json.loads(Path(args.report).read_text(encoding="utf-8"))
+        data = json.loads(Path(args.data).read_text(encoding="utf-8"))
+        report = dor_finish(report, data)
+        Path(args.report).write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
+        print(f"{report['status']}: {report['summary']}")
     elif args.cmd == "dor-data":
         data = dor_data(backlog_issues(args.team))
         Path(args.out).write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")

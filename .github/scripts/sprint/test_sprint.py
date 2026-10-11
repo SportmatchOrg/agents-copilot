@@ -105,17 +105,77 @@ class Weekly(unittest.TestCase):
         self.assertEqual(m["prs_mergeados_7d"], 1)
         self.assertEqual((m["arrastre_tickets"], m["arrastre_sp"]), (1, 4))
 
-    def test_metrics_section_is_open(self):
-        data = sprint.weekly_data([], [], [], NOW)
-        self.assertTrue(sprint.metrics_section(data)["open"])
+
+
+LONG_TICKET = (
+    "**Referencia:** WBS 9.1.2 · Steering 2\n\n**Descripción**\n\nRelease a producción.\n\n"
+    "**Pasos**\n\n" + "1. Un paso largo con muchos detalles de configuración.\n" * 60 +
+    "\n**Criterios de aceptación**\n\n- [ ] `main` contiene todo lo de `dev`.\n"
+    "- [ ] `/health` en 200.\n\n**Notas**\n\n* Rollback si falla.\n\n**Bloqueado por:** —")
+
+
+def ticket(ident, state_type, desc, sp=1):
+    t = issue(ident, state_type, sp=sp)
+    t["description"] = desc
+    return t
 
 
 class Dor(unittest.TestCase):
-    def test_flags(self):
-        a = issue("SPO-1", "backlog", sp=None)
-        b = issue("SPO-2", "backlog", sp=5)
-        flags = [d["flags"] for d in sprint.dor_data([a, b])]
-        self.assertEqual(flags, [["sin estimación"], ["estimación 5 > 4: hay que partirlo"]])
+    def test_ac_after_long_steps_is_found(self):
+        # El bug del 11/10: con la descripción cortada a 1500 caracteres, el
+        # modelo no veía los AC y marcaba "sin AC" a tickets que sí tenían.
+        self.assertGreater(LONG_TICKET.index("Criterios de aceptación"), 1500)
+        st = sprint.ticket_structure(LONG_TICKET)
+        self.assertTrue(st["has_ac_section"])
+        self.assertEqual(st["ac_items"], 2)
+        self.assertNotIn("Rollback", st["acceptance_criteria"])   # corta en **Notas**
+        self.assertTrue(st["has_rf_or_wbs"])
+
+    def test_structure_flags(self):
+        data = sprint.dor_data([
+            ticket("SPO-1", "backlog", LONG_TICKET),
+            ticket("SPO-2", "unstarted", "**Descripción**\n\nHacer algo."),
+            ticket("SPO-3", "backlog", LONG_TICKET, sp=5),
+            ticket("SPO-4", "backlog", LONG_TICKET, sp=None),
+        ])
+        flags = {d["id"]: d["flags"] for d in data}
+        self.assertEqual(flags["SPO-1"], [])
+        self.assertEqual(flags["SPO-2"], ["sin sección de criterios de aceptación", "sin referencia a RF ni WBS"])
+        self.assertEqual(flags["SPO-3"], ["estimación 5 > 4: hay que partirlo"])
+        self.assertEqual(flags["SPO-4"], ["sin estimación"])
+
+    def test_finish_merges_and_recomputes(self):
+        data = sprint.dor_data([ticket("SPO-1", "backlog", LONG_TICKET),
+                                ticket("SPO-2", "unstarted", "**Referencia:** RF-01\n\nHacer algo.")])
+        llm = {"agent": "dor-readiness", "title": "Definition of Ready", "status": "warn",
+               "summary": "un resumen larguísimo del modelo", "findings": [
+                   {"severity": "important", "title": "AC 2 vago", "ref": "SPO-1"}]}
+        r = sprint.dor_finish(llm, data)
+        self.assertEqual(r["status"], "fail")              # SPO-2 está en Todo sin AC
+        self.assertEqual(r["findings"][0]["ref"], "SPO-2")
+        self.assertEqual(r["summary"], "2 tickets de Backlog y Todo revisados, 2 con algo para corregir.")
+
+    def test_all_ready_is_ok(self):
+        data = sprint.dor_data([ticket("SPO-1", "backlog", LONG_TICKET)])
+        r = sprint.dor_finish({"status": "ok", "summary": "x", "findings": []}, data)
+        self.assertEqual((r["status"], r["findings"]), ("ok", []))
+        self.assertIn("todos listos", r["summary"])
+
+    def test_llm_down_still_reports_structure(self):
+        data = sprint.dor_data([ticket("SPO-2", "unstarted", "nada")])
+        r = sprint.dor_finish({"status": "unknown", "summary": "El modelo no respondió"}, data)
+        self.assertEqual(r["status"], "fail")
+        self.assertFalse(r["ai"])
+        self.assertEqual(r["sections"][0]["title"], "Aviso")
+
+
+class WeeklyFinish(unittest.TestCase):
+    def test_everything_folded(self):
+        data = sprint.weekly_data([], [], [], NOW)
+        r = sprint.weekly_finish({"status": "warn", "summary": "x",
+                                  "sections": [{"title": "Avance", "body": "mucho", "open": True}]}, data)
+        self.assertEqual([s["open"] for s in r["sections"]], [False, False])
+        self.assertTrue(r["sections"][0]["title"].startswith("Métricas"))
 
 
 if __name__ == "__main__":

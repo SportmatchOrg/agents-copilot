@@ -62,6 +62,11 @@ SEVERITY_LABEL = {"urgent": "Urgente", "important": "Importante", "minor": "Meno
 POLICIES = ("never", "always", "not-ok", "changed")
 
 MAX_FINDINGS = 15
+# Topes de seguridad por si el modelo no respeta el contrato: el texto largo
+# va en `detail` o en las sections, que se pliegan.
+MAX_SUMMARY = 280
+MAX_TITLE = 160
+MAX_REF = 60
 DISCORD_MAX_FINDINGS = 3
 DISCORD_LIMIT = 1900          # el tope real de Discord es 2000
 FOOTER_AI = "asistido por IA · la decisión es humana"
@@ -79,11 +84,11 @@ FORMATO DE SALIDA (obligatorio; es el formato común de todos los agentes de Spo
 Respondé SOLO con un objeto JSON válido: sin texto antes ni después y sin ```.
 {
   "status": "ok" | "warn" | "fail",
-  "summary": "el veredicto en una o dos líneas: es lo primero (y a veces lo único) que se lee",
+  "summary": "el veredicto en UNA oración de hasta 160 caracteres: es lo primero (y a veces lo único) que se lee",
   "findings": [
     {"severity": "urgent" | "important" | "minor",
      "title": "qué pasa, en una línea",
-     "ref": "dónde: archivo:línea, SPO-123, PR #4 (opcional)",
+     "ref": "solo identificadores: SPO-123, PR #4, archivo:línea. Sin explicaciones (opcional)",
      "detail": "evidencia en markdown (opcional, se muestra plegado)"}
   ],
   "sections": [{"title": "...", "body": "markdown", "open": false}]
@@ -92,6 +97,7 @@ Reglas:
 - urgent = hay que resolverlo antes de seguir; important = conviene resolverlo; minor = detalle.
   Ante la duda, bajá la severidad: lo urgente e importante lo ve todo el equipo, lo menor queda plegado.
 - "findings": [] si no hay nada. No inventes hallazgos para llenar.
+- "title" de cada finding: una línea corta. La explicación va en "detail", no en "title" ni en "ref".
 - No repitas en "sections" lo que ya dijiste en "findings" o en "summary".
 - Español, sin relleno.
 """
@@ -110,7 +116,7 @@ def normalize(raw: dict, agent: str | None = None, title: str | None = None) -> 
         "agent": agent or str(raw.get("agent") or "agente"),
         "title": title or str(raw.get("title") or raw.get("agent") or "Agente"),
         "status": status if status in STATUSES else "unknown",
-        "summary": " ".join(str(raw.get("summary") or "").split()),
+        "summary": _clip(" ".join(str(raw.get("summary") or "").split()), MAX_SUMMARY),
         "findings": [],
         "sections": [],
         "ai": bool(raw.get("ai", True)),
@@ -121,8 +127,8 @@ def normalize(raw: dict, agent: str | None = None, title: str | None = None) -> 
         sev = str(f.get("severity", "minor")).strip().lower()
         report["findings"].append({
             "severity": sev if sev in SEVERITIES else "minor",
-            "title": " ".join(str(f["title"]).split()),
-            "ref": " ".join(str(f.get("ref") or "").split()),
+            "title": _clip(" ".join(str(f["title"]).split()), MAX_TITLE),
+            "ref": _clip(" ".join(str(f.get("ref") or "").split()), MAX_REF),
             "detail": str(f.get("detail") or "").strip(),
         })
     order = {s: i for i, s in enumerate(SEVERITIES)}
