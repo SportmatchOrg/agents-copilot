@@ -1,4 +1,4 @@
-name: QA Review (reusable)
+name: ↳ QA Review
 
 # Prepara una GitHub Review en estado PENDING para una PR del repo que llama a
 # este workflow. La review NO se envía: queda como borrador visible solo para el

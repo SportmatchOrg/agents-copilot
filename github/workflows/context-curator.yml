@@ -1,8 +1,19 @@
 name: Curador de contexto (drift AGENTS.md)
 
+# Corre cuando cambia algo que puede desalinear AGENTS.md (no en cada push), y
+# una vez por semana por si el drift vino por otro lado. Discord solo avisa
+# cuando el estado cambia.
 on:
   push:
     branches: [dev, main]
+    paths:
+      - AGENTS.md
+      - '**/package.json'
+      - docker-compose.yml
+      - '**/prisma/schema.prisma'
+      - '.github/workflows/**'
+  schedule:
+    - cron: "0 12 * * 1"   # lunes 09:00 ART
   workflow_dispatch:
 
 jobs:

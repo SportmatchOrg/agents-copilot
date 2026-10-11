@@ -29,6 +29,12 @@ jobs:
       - name: Tests del cliente LLM y sus fallbacks
         run: python3 .github/scripts/test_llm.py -v
 
+      - name: Tests del formato común de los agentes
+        run: python3 -m unittest discover -s .github/scripts/common -p 'test_*.py' -v
+
+      - name: Tests de los datos del sprint (Sprint Health, Status, DoR)
+        run: python3 -m unittest discover -s .github/scripts/sprint -p 'test_*.py' -v
+
   wrappers:
     runs-on: ubuntu-latest
     steps:

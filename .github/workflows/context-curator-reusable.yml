@@ -1,12 +1,16 @@
-name: Curador de contexto (drift AGENTS.md) — reusable
+name: ↳ Curador de contexto (drift AGENTS.md)
 
-# Al hacer push a dev/main del repo llamador, verifica si su AGENTS.md quedó
-# desalineado con el repo real (estructura, stack, convenciones). Si detecta
-# drift, abre un issue con la propuesta + avisa por Discord. NO auto-commitea
-# AGENTS.md (regla "Lab4 no codifica": la decisión es humana).
+# Lógica del agente. El repo llamador solo tiene un wrapper que dice CUÁNDO
+# corre (github/workflows/context-curator.yml).
 #
-# Toda la lógica vive acá. El repo llamador solo necesita un wrapper de
-# ~15 líneas (ver github/workflows/context-curator.yml).
+# Compara AGENTS.md con la realidad del repo y, si hay drift, lo deja en UN
+# issue (label agente:context-curator) con el formato común
+# (.github/scripts/common/agent_report.py). No auto-commitea AGENTS.md
+# ("Lab4 no codifica": la decisión es humana).
+#   - Issue: se abre solo si hay drift; si ya hay uno abierto, se reemplaza su
+#     body (no acumula comentarios).
+#   - Discord: solo cuando el estado cambia (aparece drift, o se resuelve).
+#     Antes avisaba en cada push a dev/main.
 
 on:
   workflow_call:
@@ -35,9 +39,14 @@ jobs:
       group: context-curator-${{ github.repository }}-${{ github.ref }}
       cancel-in-progress: true
 
+    env:
+      AR: _agents-copilot/.github/scripts/common/agent_report.py
+
     steps:
       - name: Checkout del repo llamador
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 20
 
       - name: Checkout de agents-copilot (lógica del agente)
         uses: actions/checkout@v4
@@ -50,9 +59,9 @@ jobs:
       - name: Recolectar realidad del repo
         run: |
           {
-            echo "### Árbol (2 niveles)"; find . -maxdepth 2 -not -path '*/.git/*' -not -path './_agents-copilot/*' | sort | head -100
+            echo "### Árbol (2 niveles)"; find . -maxdepth 2 -not -path '*/.git/*' -not -path './_agents-copilot*' | sort | head -100
             echo ""; echo "### Manifiestos detectados"
-            for f in package.json requirements.txt pom.xml go.mod Dockerfile docker-compose.yml; do
+            for f in package.json back/package.json front/package.json requirements.txt Dockerfile docker-compose.yml; do
               [ -f "$f" ] && { echo "--- $f ---"; head -40 "$f"; }
             done
             echo ""; echo "### Últimos commits"; git log --oneline -15
@@ -62,91 +71,38 @@ jobs:
       - name: Armar el prompt
         run: |
           {
-            echo "Sos el Curador de contexto de SportMatch. Comparé el AGENTS.md actual contra la realidad del repo (abajo) y detectá divergencias en: estructura de carpetas, stack tecnológico, convenciones de commits/branches, y TODOs que ya podrían completarse."
-            echo "Respondé EXCLUSIVAMENTE con un objeto JSON válido (nada de texto antes/después, nada de \`\`\`), con esta forma exacta:"
-            echo '{"drift": boolean, "issue_body": string}'
-            echo "Si NO hay divergencias relevantes: drift=false, issue_body=\"\"."
-            echo "Si HAY divergencias: drift=true, issue_body en Markdown (español) listando cada divergencia con evidencia (archivo/sección) y el cambio propuesto para AGENTS.md. NO reescribas el archivo: proponé. Ignorá cosas 'Fuera de alcance' (AGENTS.md §1)."
+            echo "Sos el Curador de contexto de SportMatch. Compará el AGENTS.md actual contra la realidad del repo (abajo) y detectá divergencias en: estructura de carpetas, stack tecnológico, comandos, convenciones de commits/branches, y TODOs que ya podrían completarse."
+            echo "Reportá solo divergencias CONCRETAS con evidencia en la realidad del repo. Una redacción mejorable no es drift."
+            echo "Cómo llenar el formato:"
+            echo "- status: ok = AGENTS.md está alineado; warn = hay drift."
+            echo "- summary: 'AGENTS.md alineado' o 'N divergencias' + la más importante, en una línea."
+            echo "- findings: una por divergencia. important = confundiría a un dev o a un agente (estructura, stack, comandos, convenciones); minor = TODOs completables o detalles. ref = sección de AGENTS.md. detail = el cambio propuesto (proponé, no reescribas el archivo)."
+            echo "- sections: []."
+            echo "- Ignorá lo que esté 'Fuera de alcance' (AGENTS.md §1)."
+            echo ""
+            python3 "$AR" contract
             echo ""
             echo "=== AGENTS.md ACTUAL ==="; cat agents_actual.md
             echo ""
             echo "=== REALIDAD DEL REPO ==="; cat repo.txt
           } > prompt.txt
 
-      - name: Evaluar drift (LLM OpenAI-compatible, default Gemini)
-        id: ai
+      - name: Llamar al modelo
         env:
           LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
           LLM_BASE_URL: ${{ vars.LLM_BASE_URL }}
           LLM_MODEL: ${{ vars.LLM_MODEL }}
           LLM_FALLBACK_MODELS: ${{ vars.LLM_FALLBACK_MODELS }}
-        run: |
-          OUT=$(bash _agents-copilot/github/scripts/llm.sh prompt.txt)
-          {
-            echo 'response<<EOF_LLM'
-            echo "$OUT"
-            echo 'EOF_LLM'
-          } >> "$GITHUB_OUTPUT"
+        run: bash _agents-copilot/github/scripts/llm.sh prompt.txt > response.txt
 
-      - name: Asegurar que existan las labels usadas (idempotente)
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          gh label create documentation --color 0075ca --description "Documentación" 2>/dev/null || true
-          gh label create "agente:context-curator" --color 5319e7 --description "Generado por el agente Curador de contexto (para dedup)" 2>/dev/null || true
-
-      - name: Abrir o actualizar issue + Discord si hay drift
+      - name: Publicar
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK }}
-          RESPONSE: ${{ steps.ai.outputs.response }}
         run: |
-          notify() {
-            python3 - "$1" <<'PY'
-          import json, os, sys, urllib.request
-          msg = sys.argv[1]
-          data = json.dumps({"content": msg[:1900]}).encode()
-          hook = os.environ.get("DISCORD_WEBHOOK_URL","")
-          if hook:
-              req = urllib.request.Request(hook, data=data, headers={"Content-Type":"application/json","User-Agent":"Mozilla/5.0 (compatible; SportMatchBot/1.0)"})
-              urllib.request.urlopen(req)
-          PY
-          }
-
-          if printf '%s' "$RESPONSE" | grep -q "^LLM_UNAVAILABLE"; then
-            echo "LLM no disponible, aviso sin evaluar drift: $RESPONSE"
-            notify "⚠️ Curador de contexto: LLM no disponible ahora mismo, no se evaluó drift en este run. ($RESPONSE)"
-            exit 0
-          fi
-
-          # El LLM puede devolver el JSON envuelto en ```json ... ``` pese a la instrucción; se lo toleramos.
-          printf '%s' "$RESPONSE" | sed -e '/^```/d' > verdict.json
-          if ! jq -e . verdict.json >/dev/null 2>&1; then
-            echo "El LLM no devolvió JSON válido, no se puede decidir drift/sin-cambios de forma confiable. Respuesta cruda:"
-            cat verdict.json
-            notify "⚠️ Curador de contexto: el LLM devolvió un formato inesperado, no se pudo evaluar drift en este run."
-            exit 0
-          fi
-
-          DRIFT=$(jq -r '.drift' verdict.json)
-          if [ "$DRIFT" != "true" ]; then
-            echo "AGENTS.md alineado, sin acción."
-            exit 0
-          fi
-
-          jq -r '.issue_body' verdict.json > issue.md
-
-          EXISTING=$(gh issue list --state open --label "agente:context-curator" --json number -q '.[0].number' 2>/dev/null || echo "")
-          if [ -n "$EXISTING" ]; then
-            # Reemplaza el body (no acumula comentarios en cada push): la evidencia de drift
-            # cambia con cada push, mantener solo la más reciente evita que el issue crezca sin límite.
-            gh issue edit "$EXISTING" --body-file issue.md
-            URL=$(gh issue view "$EXISTING" --json url -q .url)
-            echo "Issue #$EXISTING actualizado (ya existía, se evita duplicar): $URL"
-            notify "📄 El Curador de contexto actualizó el issue de drift existente. Issue: $URL"
-          else
-            URL=$(gh issue create --title "📄 AGENTS.md desactualizado (drift detectado)" \
-                  --body-file issue.md --label documentation --label "agente:context-curator" 2>/dev/null || echo "")
-            echo "Issue nuevo creado: $URL"
-            notify "📄 El Curador de contexto detectó que AGENTS.md quedó desactualizado. Issue: $URL"
-          fi
+          python3 "$AR" from-llm --agent context-curator --title "Curador de contexto · AGENTS.md" \
+            --in response.txt --out report.json
+          python3 "$AR" publish --report report.json \
+            --issue-label "agente:context-curator" --issue-title "📄 AGENTS.md desactualizado" \
+            --comment-policy not-ok-or-existing --discord-policy changed \
+            --context "$GITHUB_REPOSITORY"

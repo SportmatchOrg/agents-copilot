@@ -1,4 +1,4 @@
-name: API Test Agent (reusable)
+name: ↳ API Test Agent
 
 # Agente #9. A diferencia de los otros ocho del paquete, este SÍ es un agente:
 # el modelo elige qué herramienta invocar, recibe el resultado real como input

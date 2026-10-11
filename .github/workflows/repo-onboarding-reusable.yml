@@ -1,4 +1,4 @@
-name: Onboarding (refresh mensual) — reusable
+name: ↳ Onboarding (refresh mensual)
 
 # El agente de Onboarding (agente 4) era solo chat mode: dependía de que alguien
 # se acuerde de correrlo, justo en un equipo donde los roles rotan cada mes
@@ -59,7 +59,10 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          OPEN=$(gh pr list --state open --head bot/onboarding-refresh --json number -q '.[0].number' 2>/dev/null || echo "")
+          # Las ramas llevan fecha (bot/onboarding-refresh-AAAAMMDD): `--head` exige el
+          # nombre exacto y nunca matcheaba, así que se abría un PR nuevo cada mes.
+          OPEN=$(gh pr list --state open --json number,headRefName \
+            -q '[.[] | select(.headRefName | startswith("bot/onboarding-refresh"))][0].number // empty' 2>/dev/null || echo "")
           echo "open_pr=$OPEN" >> "$GITHUB_OUTPUT"
 
       - name: Recolectar realidad del repo
@@ -88,48 +91,31 @@ jobs:
             echo "=== REALIDAD DEL REPO ==="; cat repo.txt
           } > prompt.txt
 
-      - name: Generar el onboarding (LLM OpenAI-compatible, default Gemini)
+      - name: Llamar al modelo
         if: steps.existing.outputs.open_pr == ''
-        id: ai
         env:
           LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
           LLM_BASE_URL: ${{ vars.LLM_BASE_URL }}
           LLM_MODEL: ${{ vars.LLM_MODEL }}
           LLM_FALLBACK_MODELS: ${{ vars.LLM_FALLBACK_MODELS }}
-        run: |
-          OUT=$(bash _agents-copilot/github/scripts/llm.sh prompt.txt)
-          {
-            echo 'response<<EOF_LLM'
-            echo "$OUT"
-            echo 'EOF_LLM'
-          } >> "$GITHUB_OUTPUT"
+        run: bash _agents-copilot/github/scripts/llm.sh prompt.txt > response.txt
 
+      # Este agente produce un archivo, no un veredicto: el formato común se usa
+      # solo para el aviso en Discord (titular + link al PR).
       - name: Abrir PR con el onboarding actualizado
         if: steps.existing.outputs.open_pr == ''
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK }}
-          RESPONSE: ${{ steps.ai.outputs.response }}
+          AR: _agents-copilot/.github/scripts/common/agent_report.py
         run: |
-          notify() {
-            python3 - "$1" <<'PY'
-          import json, os, sys, urllib.request
-          data = json.dumps({"content": sys.argv[1][:1900]}).encode()
-          hook = os.environ.get("DISCORD_WEBHOOK_URL","")
-          if hook:
-              req = urllib.request.Request(hook, data=data, headers={"Content-Type":"application/json","User-Agent":"Mozilla/5.0 (compatible; SportMatchBot/1.0)"})
-              urllib.request.urlopen(req)
-          PY
-          }
-
-          if printf '%s' "$RESPONSE" | grep -q "^LLM_UNAVAILABLE"; then
-            echo "LLM no disponible, no se genera el onboarding: $RESPONSE"
-            notify "⚠️ Onboarding: LLM no disponible ahora mismo, no se refrescó docs/ONBOARDING.md este mes. ($RESPONSE)"
+          if grep -q "^LLM_UNAVAILABLE" response.txt; then
+            echo "::warning title=Onboarding::el modelo no respondió; se reintenta el mes que viene o a mano. $(cat response.txt)"
             exit 0
           fi
 
           mkdir -p docs
-          printf '%s' "$RESPONSE" | sed -e '/^```/d' > docs/ONBOARDING.md
+          sed -e '/^```/d' response.txt > docs/ONBOARDING.md
 
           git config user.name "sportmatch-bot"
           git config user.email "bot@sportmatch.local"
@@ -150,7 +136,10 @@ jobs:
             --body "Generado automáticamente por el agente de Onboarding. Revisar antes de mergear (regla \"Lab4 no codifica\": la decisión es humana). Compara \`docs/ONBOARDING.md\` contra el estado real del repo." \
             --label documentation 2>/dev/null || echo "")
           echo "PR creado: $URL"
-          notify "📘 Nuevo PR de refresh de onboarding para revisar: $URL"
+          python3 "$AR" new --agent repo-onboarding --title "Onboarding" --status warn \
+            --summary "Hay un PR con docs/ONBOARDING.md actualizado para revisar." --out report.json
+          python3 "$AR" publish --report report.json --discord-policy always \
+            --context "$GITHUB_REPOSITORY" --link "${URL:-$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/pulls}"
 
       - name: Avisar que ya había un PR abierto (se omite este mes)
         if: steps.existing.outputs.open_pr != ''
