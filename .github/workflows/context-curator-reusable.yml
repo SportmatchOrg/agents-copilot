@@ -93,15 +93,13 @@ jobs:
           LLM_BASE_URL: ${{ vars.LLM_BASE_URL }}
           LLM_MODEL: ${{ vars.LLM_MODEL }}
           LLM_FALLBACK_MODELS: ${{ vars.LLM_FALLBACK_MODELS }}
-        run: bash _agents-copilot/github/scripts/llm.sh prompt.txt > response.txt
+        run: python3 "$AR" ask --prompt prompt.txt --agent context-curator --title "Curador de contexto · AGENTS.md" --out report.json
 
       - name: Publicar
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK }}
         run: |
-          python3 "$AR" from-llm --agent context-curator --title "Curador de contexto · AGENTS.md" \
-            --in response.txt --out report.json
           python3 "$AR" publish --report report.json \
             --issue-label "agente:context-curator" --issue-title "📄 AGENTS.md desactualizado" \
             --comment-policy not-ok-or-existing --discord-policy changed \

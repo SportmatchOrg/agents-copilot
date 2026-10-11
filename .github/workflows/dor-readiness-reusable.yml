@@ -90,14 +90,12 @@ jobs:
           LLM_BASE_URL: ${{ vars.LLM_BASE_URL }}
           LLM_MODEL: ${{ vars.LLM_MODEL }}
           LLM_FALLBACK_MODELS: ${{ vars.LLM_FALLBACK_MODELS }}
-        run: bash _agents-copilot/github/scripts/llm.sh prompt.txt > response.txt
+        run: python3 "$AR" ask --prompt prompt.txt --agent dor-readiness --title "Definition of Ready" --out report.json
 
       - name: Publicar
         env:
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK }}
         run: |
-          python3 "$AR" from-llm --agent dor-readiness --title "Definition of Ready" \
-            --in response.txt --out report.json
           python3 _agents-copilot/.github/scripts/sprint/sprint.py dor-finish --report report.json --data data.json
           python3 "$AR" publish --report report.json \
             --discord-policy not-ok \

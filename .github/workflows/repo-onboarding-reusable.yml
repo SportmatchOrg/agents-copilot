@@ -114,6 +114,15 @@ jobs:
             exit 0
           fi
 
+          # El router de modelos gratis a veces cae en uno que no escribe (ej. un
+          # clasificador que responde "User Safety: safe"). Una guía de onboarding
+          # real tiene título y varias secciones: si no, no se abre un PR con basura.
+          if ! grep -q '^#' response.txt || [ "$(grep -c '^##' response.txt)" -lt 4 ]; then
+            echo "::warning title=Onboarding::la respuesta no parece una guía (sin título o con menos de 4 secciones); no se abre PR."
+            head -c 2000 response.txt
+            exit 0
+          fi
+
           mkdir -p docs
           sed -e '/^```/d' response.txt > docs/ONBOARDING.md
 

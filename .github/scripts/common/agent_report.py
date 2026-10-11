@@ -31,6 +31,8 @@ Reglas de render (iguales para todos):
 
 Uso desde un workflow:
   agent_report.py contract                       imprime el formato para el prompt
+  agent_report.py ask --prompt prompt.txt --agent A --title T --out report.json [--tries 3]
+                                                 llama al modelo, parsea y reintenta si no se entiende
   agent_report.py from-llm --agent A --title T --in resp.txt --out report.json
   agent_report.py new --agent A --title T --status ok --summary S --out report.json
   agent_report.py render --report report.json --target github|discord|linear|summary
@@ -73,6 +75,7 @@ FOOTER_AI = "asistido por IA · la decisión es humana"
 FOOTER_DET = "chequeo automático, sin IA · la decisión es humana"
 
 LINEAR_SH = Path(__file__).resolve().parents[3] / "github" / "scripts" / "linear.sh"
+LLM_SH = Path(__file__).resolve().parents[3] / "github" / "scripts" / "llm.sh"
 
 
 # --------------------------------------------------------------------------
@@ -201,6 +204,30 @@ def _extract_json(text: str) -> dict | None:
                 and all(isinstance(x, dict) and "title" in x for x in obj)):
             first_list = obj
     return {"findings": first_list} if first_list is not None else None
+
+
+def ask(prompt_file: str, agent: str, title: str, tries: int = 3,
+        call=None) -> tuple[dict, str]:
+    """Llama al modelo con llm.sh y devuelve (reporte, texto crudo).
+
+    Si el modelo respondió pero no se entiende, pregunta de nuevo: con el router
+    `openrouter/free` cada llamada puede caer en otro modelo, y algunos no son
+    para esto (el 11/10 respondió un clasificador de seguridad: "User Safety:
+    safe"). Si llm.sh ya agotó la cadena de modelos (LLM_UNAVAILABLE), no se
+    reintenta: sería repetir lo mismo.
+    """
+    call = call or (lambda: subprocess.run(["bash", str(LLM_SH), prompt_file],
+                                           capture_output=True, text=True).stdout)
+    report, text = from_llm("", agent, title), ""
+    for n in range(1, tries + 1):
+        text = call() or ""
+        report = from_llm(text, agent, title)
+        if report["status"] != "unknown" or not text.strip() or text.startswith("LLM_UNAVAILABLE"):
+            break
+        print(f"::group::Intento {n}/{tries}: respuesta en formato inesperado")
+        print(text[:6000])
+        print("::endgroup::")
+    return report, text
 
 
 # --------------------------------------------------------------------------
@@ -487,6 +514,13 @@ def main(argv: list[str] | None = None) -> int:
 
     sub.add_parser("contract")
 
+    p = sub.add_parser("ask")
+    p.add_argument("--prompt", required=True)
+    p.add_argument("--agent", required=True)
+    p.add_argument("--title", required=True)
+    p.add_argument("--out", required=True)
+    p.add_argument("--tries", type=int, default=3)
+
     p = sub.add_parser("from-llm")
     p.add_argument("--agent", required=True)
     p.add_argument("--title", required=True)
@@ -520,6 +554,11 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.cmd == "contract":
         print(CONTRACT, end="")
+    elif args.cmd == "ask":
+        report, text = ask(args.prompt, args.agent, args.title, args.tries)
+        Path(args.out).with_suffix(".raw.txt").write_text(text, encoding="utf-8")
+        _save(report, args.out)
+        print(f"{args.agent}: {report['status']} — {report['summary']}")
     elif args.cmd == "from-llm":
         text = Path(args.inp).read_text(encoding="utf-8") if Path(args.inp).exists() else ""
         report = from_llm(text, args.agent, args.title)

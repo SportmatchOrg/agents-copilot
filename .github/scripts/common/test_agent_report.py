@@ -88,6 +88,31 @@ class FromLlm(unittest.TestCase):
         self.assertEqual(r["sections"][0]["title"], "Respuesta cruda")
 
 
+class Ask(unittest.TestCase):
+    def run_ask(self, answers):
+        calls = []
+        def call():
+            calls.append(1)
+            return answers[len(calls) - 1]
+        report, _ = ar.ask("prompt.txt", "a", "A", tries=3, call=call)
+        return report, len(calls)
+
+    def test_retries_when_a_guard_model_answers(self):
+        r, n = self.run_ask(["User Safety: safe", '{"status": "ok", "summary": "bien"}'])
+        self.assertEqual((r["status"], n), ("ok", 2))
+
+    def test_gives_up_after_tries(self):
+        r, n = self.run_ask(["basura"] * 3)
+        self.assertEqual((r["status"], n), ("unknown", 3))
+
+    def test_no_retry_when_chain_is_exhausted(self):
+        r, n = self.run_ask(["LLM_UNAVAILABLE: HTTP 429", "{}", "{}"])
+        self.assertEqual((r["status"], n), ("unknown", 1))
+
+    def test_first_answer_good(self):
+        self.assertEqual(self.run_ask(['{"status": "warn", "summary": "x"}'])[1], 1)
+
+
 class RenderGithub(unittest.TestCase):
     def test_header_and_marker(self):
         md = ar.render_github(sample())
