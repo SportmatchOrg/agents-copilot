@@ -61,7 +61,7 @@ SEVERITIES = ("urgent", "important", "minor")
 STATUS_ICON = {"ok": "🟢", "warn": "🟡", "fail": "🔴", "unknown": "⚪"}
 SEVERITY_ICON = {"urgent": "🚨", "important": "⚠️", "minor": "·"}
 SEVERITY_LABEL = {"urgent": "Urgente", "important": "Importante", "minor": "Menores"}
-POLICIES = ("never", "always", "not-ok", "changed")
+POLICIES = ("never", "always", "not-ok", "changed", "first")
 
 MAX_FINDINGS = 15
 # Topes de seguridad por si el modelo no respeta el contrato: el texto largo
@@ -343,6 +343,10 @@ def should_send(policy: str, status: str, previous: str | None) -> bool:
     changed   solo si el estado cambió respecto al último publicado; la
               primera vez, solo si no está ok. Es la política de las PRs:
               cada push re-evalúa, pero solo se avisa cuando algo se mueve.
+    first     solo la primera evaluación, y solo si no está ok. Para agentes
+              cuyo veredicto es una opinión del modelo que puede variar entre
+              pushes sin que cambie nada importante (el Traductor): el detalle
+              actualizado vive en el comentario de la PR, no en el canal.
     `unknown` (el modelo no respondió) solo sale con `always`.
     """
     if policy == "always":
@@ -353,6 +357,8 @@ def should_send(policy: str, status: str, previous: str | None) -> bool:
         return status in ("warn", "fail")
     if policy == "changed":
         return status != "ok" if previous is None else status != previous
+    if policy == "first":
+        return previous is None and status != "ok"
     raise ValueError(f"política desconocida: {policy}")
 
 

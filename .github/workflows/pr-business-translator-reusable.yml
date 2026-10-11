@@ -6,8 +6,10 @@ name: ↳ Traductor de PR a negocio
 # Traduce el PR para alguien que no lee código: qué hace, qué riesgo tiene y
 # qué probar. Publica con el formato común (.github/scripts/common/agent_report.py):
 #   - PR: un comentario, editado en el lugar en cada push.
-#   - Discord: solo cuando cambia el nivel de riesgo (la primera vez, solo si
-#     no es bajo). Un push que no cambia nada no avisa.
+#   - Discord: una sola vez por PR, en la primera evaluación, y solo si el
+#     riesgo no es bajo. El nivel de riesgo es una opinión del modelo que varía
+#     entre pushes (y entre modelos del router): avisar cada cambio era ruido.
+#     La versión al día está siempre en el comentario de la PR.
 #   - PRs de release (head = dev): no corre. Juntan el trabajo de muchas PRs
 #     que ya se tradujeron una por una.
 
@@ -97,5 +99,5 @@ jobs:
           PR_URL: ${{ github.event.pull_request.html_url }}
         run: |
           python3 "$AR" publish --report report.json --pr "$PR" \
-            --discord-policy changed \
+            --discord-policy first \
             --context "PR #$PR · $PR_TITLE" --link "$PR_URL"

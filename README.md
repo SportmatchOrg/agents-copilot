@@ -34,7 +34,7 @@ Qué evento dispara cada workflow:
 
 | Workflow | Evento | Salida | Discord |
 |----------|--------|--------|---------|
-| `pr-business-translator.yml` | PR abierto/actualizado (no en releases `dev`→`main`) | Comentario en el PR, editado en el lugar | Solo si cambia el nivel de riesgo (la 1ª vez, solo si no es bajo) |
+| `pr-business-translator.yml` | PR abierto/actualizado (no en releases `dev`→`main`) | Comentario en el PR, editado en el lugar | Una sola vez por PR, si el riesgo no es bajo |
 | `dod-checker.yml` | PR abierto/actualizado (no en releases) | Comentario en el PR + comentario en el ticket de Linear **solo cuando cambia el veredicto** | Solo si cambia el veredicto |
 | `security-agent.yml` | PR que toca `back/` · label `security-agent` · manual | Comentario en el PR solo si hay hallazgos (o si ya había uno, para pasarlo a verde) | Solo si cambia el estado |
 | `qa-review.yml` | PR abierta / actualizada / lista para revisión | **Pending review** (borrador visible solo para el QA) | — |
@@ -58,7 +58,8 @@ un `summary` de una o dos líneas, `findings` con severidad (`urgent` · `import
 - **A la vista:** solo lo urgente e importante, una línea por hallazgo.
 - **Plegado (`<details>`):** lo menor, la evidencia de cada hallazgo y las secciones del agente.
 - **Discord:** titular + hasta 3 hallazgos + link. Nunca el texto entero, sin previews de links.
-- **Cuándo avisa** (`--discord-policy`): `changed` en las PRs (solo cuando el estado se mueve),
+- **Cuándo avisa** (`--discord-policy`): `changed` en las PRs (solo cuando el estado se mueve;
+  `first` en el Traductor, una sola vez, porque su riesgo es una opinión que varía entre pushes),
   `not-ok` en los programados (solo si hay algo para mirar), `always` en el status semanal.
 - **Si el modelo no responde** (`unknown`): no se pisa el último veredicto ni se avisa; queda un
   warning en la corrida.

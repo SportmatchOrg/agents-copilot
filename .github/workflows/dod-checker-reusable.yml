@@ -88,7 +88,7 @@ jobs:
         run: |
           {
             echo "Sos el DoD Checker de SportMatch. Verificá la Definition of Done de este PR (AGENTS.md §6) con la evidencia de abajo. NO cerrás nada: reportás."
-            echo "Criterios (son 3, no inventes más): 1) Criterios de aceptación cumplidos — es el punto clave: si hay un TICKET DE LINEAR abajo, su title/description son la fuente de verdad de los AC; si viene vacío, deducí el RF del título/rama contra AGENTS.md §2 y avisá que es una inferencia. 2) Doc actualizada si aplica (¿tocó setup, API o convenciones?). 3) Sin deuda nueva (TODOs sin ticket, código muerto, tests skippeados)."
+            echo "Criterios (son 3, no inventes más): 1) Criterios de aceptación cumplidos — es el punto clave: si hay un TICKET DE LINEAR abajo, su title/description son la fuente de verdad de los AC; si viene vacío, deducí el RF del título/rama contra AGENTS.md §2 y avisá que es una inferencia. 2) Doc actualizada si aplica: SOLO aplica si el cambio toca setup del proyecto, variables de entorno, la API pública (endpoints) o convenciones del producto. Cambios de CI, workflows, tests, refactors internos o código nuevo que no cambia cómo se usa algo NO requieren doc: ponelo ⚪ N-A, nunca ❌. 3) Sin deuda nueva (TODOs sin ticket, código muerto, tests skippeados)."
             echo "Juzgá los AC contra el CÓDIGO del diff: ¿el cambio implementa lo que pide cada criterio? No pidas evidencia que un diff no puede mostrar:"
             echo "- lint, build, CI, merge y deploy: los garantiza la branch protection. No son hallazgos."
             echo "- tests automatizados: están fuera de alcance del proyecto. Que no haya tests NO es un hallazgo."

@@ -187,6 +187,10 @@ class Policies(unittest.TestCase):
             ("changed", "fail", "fail", False),  # mismo estado en otro push: silencio
             ("changed", "ok", "fail", True),     # se arregló: aviso
             ("changed", "unknown", "fail", False),
+            ("first", "warn", None, True),       # primera vez con algo: aviso
+            ("first", "ok", None, False),
+            ("first", "fail", "warn", False),    # el modelo cambió de opinión: silencio
+            ("first", "ok", "fail", False),
         ]
         for policy, status, prev, expected in cases:
             with self.subTest(policy=policy, status=status, prev=prev):
