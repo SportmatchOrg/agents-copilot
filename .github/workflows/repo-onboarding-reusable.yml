@@ -129,14 +129,17 @@ jobs:
           git config user.name "sportmatch-bot"
           git config user.email "bot@sportmatch.local"
 
-          if git diff --quiet -- docs/ONBOARDING.md; then
+          # `git add` antes de comparar: `git diff` sin --cached no ve archivos
+          # nuevos, y si el repo todavía no tenía ONBOARDING.md el agente decía
+          # "sin cambios" y nunca lo creaba.
+          git add docs/ONBOARDING.md
+          if git diff --cached --quiet -- docs/ONBOARDING.md; then
             echo "Sin cambios respecto al onboarding actual, no se abre PR."
             exit 0
           fi
 
           BRANCH="bot/onboarding-refresh-$(date +%Y%m%d)"
           git checkout -b "$BRANCH"
-          git add docs/ONBOARDING.md
           git commit -m "docs: refresh mensual de onboarding (automático)"
           git push -u origin "$BRANCH"
 
