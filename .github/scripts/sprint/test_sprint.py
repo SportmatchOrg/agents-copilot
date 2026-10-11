@@ -58,6 +58,16 @@ class Health(unittest.TestCase):
         r = sprint.health_report(issues, [], NOW)
         self.assertTrue(any("Pache tiene 3" in f["title"] for f in r["findings"]))
 
+    def test_in_review_is_not_wip(self):
+        issues = [issue("SPO-1", "started", "2026-10-15", who="Juan")] + \
+                 [issue(f"SPO-{n}", "started", "2026-10-15", who="Juan", state_name="In Review",
+                        updated="2026-10-01T10:00:00Z") for n in range(2, 5)]
+        r = sprint.health_report(issues, [], NOW)
+        titles = " ".join(f["title"] for f in r["findings"])
+        self.assertNotIn("tickets en curso", titles)       # no es WIP
+        self.assertNotIn("sin movimiento", titles)         # review viejo no es "trabado"
+        self.assertIn("1 en curso · 3 en review", r["summary"])
+
     def test_stale_started_ticket(self):
         r = sprint.health_report([issue("SPO-1", "started", "2026-10-15",
                                         updated="2026-10-09T10:00:00Z")], [], NOW)

@@ -100,6 +100,16 @@ def _type(i: dict) -> str:
     return (i.get("state") or {}).get("type", "")
 
 
+def _in_review(i: dict) -> bool:
+    """Linear le da el mismo tipo (`started`) a "In Progress" y a "In Review":
+    solo el nombre del estado los distingue."""
+    return _type(i) == "started" and "review" in (i.get("state") or {}).get("name", "").lower()
+
+
+def _in_progress(i: dict) -> bool:
+    return _type(i) == "started" and not _in_review(i)
+
+
 def _who(i: dict) -> str:
     return (i.get("assignee") or {}).get("name") or "sin asignar"
 
@@ -154,7 +164,10 @@ def health_report(issues: list[dict] | None, open_prs: list[dict], now: datetime
                          "title": f"{len(late)} ticket(s) de un sprint ya cerrado siguen abiertos",
                          "ref": _refs(late), "detail": _lines([_line(i) for i in late])})
 
-    started = [i for i in issues if _type(i) == "started"]
+    # WIP y "sin movimiento" miran solo In Progress: lo que está en review
+    # espera a otra persona, y si se traba aparece en las PRs sin review.
+    started = [i for i in issues if _in_progress(i)]
+    reviewing = [i for i in issues if _in_review(i)]
     by_dev: dict[str, list[dict]] = {}
     for i in started:
         by_dev.setdefault(_who(i), []).append(i)
@@ -193,7 +206,7 @@ def health_report(issues: list[dict] | None, open_prs: list[dict], now: datetime
                              "title": f"Sprint en riesgo: {round(ratio * 100)}% hecho y {falta}"})
         summary = (f"Sprint que cierra el {due:%d/%m} ({falta}): "
                    f"{len(done)}/{len(sprint)} tickets · {done_sp}/{total_sp} SP · "
-                   f"{len(started)} en curso · {open_count} PRs abiertas")
+                   f"{len(started)} en curso · {len(reviewing)} en review · {open_count} PRs abiertas")
         rows = ["| Ticket | Estado | Quién | SP |", "|---|---|---|---|"]
         rows += [f"| [{i['identifier']}]({i['url']}) {i['title']} | {i['state']['name']} | {_who(i)} | "
                  f"{i.get('estimate') or '—'} |" for i in sorted(sprint, key=lambda x: x["state"]["name"])]
