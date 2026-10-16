@@ -160,7 +160,9 @@ def publish(rows: list[dict]) -> None:
 
 
 def register_catalog(catalog: list[dict]) -> None:
-    url = f"{env('KPI_SUPABASE_URL')}/rest/v1/kpi_catalog?on_conflict=project_id,id"
+    # Desde la migración 202610080001 de la cátedra el catálogo es por ambiente:
+    # la clave primaria es (project_id, env, id) y el env lo fija la X-Project-Key.
+    url = f"{env('KPI_SUPABASE_URL')}/rest/v1/kpi_catalog?on_conflict=project_id,env,id"
     status, body, _ = request("POST", url, headers=supabase_headers("resolution=ignore-duplicates,return=minimal"),
                               body=lib.catalog_rows(catalog))
     if status not in (200, 201):
