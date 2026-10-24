@@ -265,7 +265,9 @@ def summary_markdown(report: dict) -> str:
     ]
     if report.get("reason"):
         lines += [f"> {report['reason']}", ""]
-    lines += ["| KPI | Estado | Valor | Detalle |", "|---|---|---|---|"]
+    # `catalog` no mide nada: sin resultados no se dibuja la tabla vacía.
+    if report["results"]:
+        lines += ["| KPI | Estado | Valor | Detalle |", "|---|---|---|---|"]
     for r in report["results"]:
         value = "—" if r["value"] is None else r["value"]
         detail = ", ".join(f"{k}={v}" for k, v in r["detail"].items() if k != "prs")

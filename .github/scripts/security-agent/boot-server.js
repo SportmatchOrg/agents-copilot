@@ -65,6 +65,14 @@ if (!process.env.VAPID_PUBLIC_KEY || !process.env.VAPID_PRIVATE_KEY) {
 }
 process.env.VAPID_SUBJECT ??= 'mailto:sec@security.test';
 
+// Imágenes (SPO-287): `validateEnv` exige las dos y el constructor de
+// `StorageService` parsea la connection string con `fromConnectionString`, así
+// que tiene que tener formato válido. El agente todavía no prueba subidas: la
+// cuenta es ficticia y nunca se le pega a Azure.
+process.env.AZURE_STORAGE_CONNECTION_STRING ??=
+  'DefaultEndpointsProtocol=https;AccountName=sportmatchsecurity;AccountKey=c3BvcnRtYXRjaC1zZWN1cml0eS10ZXN0LW9ubHk=;EndpointSuffix=core.windows.net';
+process.env.AZURE_STORAGE_CONTAINER ??= 'images';
+
 const { Test } = req('@nestjs/testing');
 const { ValidationPipe, UnauthorizedException } = req('@nestjs/common');
 const { AppModule } = dist('app.module');
