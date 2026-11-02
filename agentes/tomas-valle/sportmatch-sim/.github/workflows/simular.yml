@@ -1,0 +1,134 @@
+name: Corrida de usuarios simulados
+
+# Cada 4 h, a los :10 (00:10, 04:10, 08:10 … 20:10 de Argentina). La programa cron-job.com, que llama a
+# la API de GitHub (POST /repos/SportmatchOrg/sportmatch-sim/dispatches, event_type "corrida-programada"):
+# el `schedule` de GitHub demoraba las corridas (40 min o más) o las salteaba.
+# Claude usa la suscripción de quien generó CLAUDE_CODE_OAUTH_TOKEN (`claude setup-token`).
+# Si la corrida falla (por ejemplo, sin límite de uso), avisa en Discord.
+#
+# Entornos: las corridas programadas recorren los de la variable SIM_ENTORNOS ("dev", "dev,prod"…;
+# sin la variable, solo dev). Cada entorno usa su URL (variables API_URL y API_URL_PROD) y su estado
+# en state/<entorno>/. A mano, desde "Run workflow": los dos (uno detrás del otro) o uno puntual.
+
+on:
+  repository_dispatch:
+    types: [corrida-programada]
+  workflow_dispatch:
+    inputs:
+      entorno:
+        description: Entorno (dev,prod corre los dos, uno detrás del otro)
+        type: choice
+        options: ['dev,prod', dev, prod]
+        default: 'dev,prod'
+      max:
+        description: Tope de personas por entorno en esta corrida
+        default: '12'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: simular
+  cancel-in-progress: false
+
+jobs:
+  entornos:
+    runs-on: ubuntu-latest
+    outputs:
+      lista: ${{ steps.lista.outputs.lista }}
+    steps:
+      - id: lista
+        env:
+          ELEGIDO: ${{ inputs.entorno }}
+          PROGRAMADOS: ${{ vars.SIM_ENTORNOS || 'dev' }}
+        run: |
+          echo "lista=$(echo "${ELEGIDO:-$PROGRAMADOS}" | jq -Rc 'split(",") | map(gsub(" "; "")) | map(select(length > 0))')" >> "$GITHUB_OUTPUT"
+
+  corrida:
+    needs: entornos
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    strategy:
+      # De a uno: cada entorno commitea su estado y no deben pisarse.
+      max-parallel: 1
+      fail-fast: false
+      matrix:
+        entorno: ${{ fromJSON(needs.entornos.outputs.lista) }}
+    env:
+      SIM_ENV: ${{ matrix.entorno }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Instalar Claude Code
+        run: npm install -g @anthropic-ai/claude-code
+
+      - name: Escribir .env
+        env:
+          URL_DEV: ${{ vars.API_URL }}
+          URL_PROD: ${{ vars.API_URL_PROD }}
+          FIREBASE_API_KEY: ${{ secrets.FIREBASE_API_KEY }}
+          BOT_PASSWORD: ${{ secrets.BOT_PASSWORD }}
+          SIM_SOLO_BOTS: ${{ vars.SIM_SOLO_BOTS }}
+        run: |
+          case "$SIM_ENV" in
+            dev) API_URL="$URL_DEV"; VAR=API_URL ;;
+            prod) API_URL="$URL_PROD"; VAR=API_URL_PROD ;;
+            *) echo "::error::Entorno desconocido: $SIM_ENV"; exit 1 ;;
+          esac
+          # Sin fallback: un entorno sin su URL no corre (nunca prod contra dev ni al revés).
+          if [ -z "$API_URL" ]; then echo "::error::Falta la variable del repo $VAR"; exit 1; fi
+          for var in FIREBASE_API_KEY BOT_PASSWORD; do
+            if [ -z "${!var}" ]; then echo "::error::Falta el secreto $var"; exit 1; fi
+          done
+          printf 'API_URL_%s=%s\nFIREBASE_API_KEY=%s\nBOT_PASSWORD=%s\n' \
+            "${SIM_ENV^^}" "$API_URL" "$FIREBASE_API_KEY" "$BOT_PASSWORD" > .env
+          echo "SIM_SOLO_BOTS=${SIM_SOLO_BOTS:-0}" >> .env
+
+      - name: Corrida
+        id: corrida
+        continue-on-error: true
+        env:
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          MAX: ${{ inputs.max || '12' }}
+        run: |
+          claude -p "Hacé una corrida según CLAUDE.md. Usá \`hoy --max $MAX\`." \
+            --model sonnet \
+            --max-turns 150 \
+            --output-format json \
+            --permission-mode acceptEdits \
+            --allowedTools "Bash(node src/cli.ts:*)" "Bash(node src/create-bots.ts:*)" Read Glob \
+            > corrida.json
+          node .github/scripts/resultado.mjs corrida.json
+
+      - name: Guardar estado
+        if: always()
+        run: |
+          git config user.name "sportmatch-sim"
+          git config user.email "sportmatch-sim@users.noreply.github.com"
+          git add state
+          if git diff --cached --quiet; then
+            echo "Sin cambios en state/."
+            exit 0
+          fi
+          git commit -m "sim($SIM_ENV): corrida $(TZ=America/Argentina/Buenos_Aires date '+%Y-%m-%d %H:%M')"
+          for intento in 1 2 3; do
+            git pull --rebase -q && git push -q && exit 0
+            sleep 5
+          done
+          exit 1
+
+      - name: Avisar en Discord si falló
+        if: steps.corrida.outcome == 'failure'
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: node .github/scripts/avisar-discord.mjs corrida.json
+
+      - name: Marcar el job como fallido
+        if: steps.corrida.outcome == 'failure'
+        run: exit 1

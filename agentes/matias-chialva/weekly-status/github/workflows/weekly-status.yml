@@ -1,0 +1,17 @@
+name: Status Report semanal
+
+on:
+  schedule:
+    - cron: "0 20 * * 5"
+  workflow_dispatch:
+
+jobs:
+  weekly-status:
+    permissions:
+      contents: write
+      pull-requests: read
+    uses: SportmatchOrg/agents-copilot/.github/workflows/weekly-status-reusable.yml@main
+    secrets:
+      LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
+      LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
+      DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK_PROGRESS }}

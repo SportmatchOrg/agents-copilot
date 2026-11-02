@@ -1,0 +1,112 @@
+[
+  {
+    "id": "team_completion_rate",
+    "origin": "back",
+    "kind": "business",
+    "unit": "%",
+    "name": "Team Completion Rate",
+    "description": "Porcentaje de partidos no cancelados con fecha en los últimos 30 días que llegaron al cupo completo. El organizador no ocupa cupo.",
+    "source": "POST /kpis/snapshots del back: Match.capacity y Participant",
+    "aggregation": "avg",
+    "justification": "Mide si SportMatch resuelve el problema central: completar equipos. Viene del Project Charter."
+  },
+  {
+    "id": "time_to_full",
+    "origin": "back",
+    "kind": "business",
+    "unit": "h",
+    "name": "Time to Full",
+    "description": "Mediana de horas entre que se publica un partido y que completa su cupo, para los partidos no cancelados de los últimos 30 días que lo completaron.",
+    "source": "POST /kpis/snapshots del back: Match.filledAt - Match.createdAt",
+    "aggregation": "avg",
+    "justification": "Mide la velocidad con la que la plataforma completa un partido. Viene del Project Charter."
+  },
+  {
+    "id": "user_return_rate",
+    "origin": "back",
+    "kind": "business",
+    "unit": "%",
+    "name": "Tasa de recurrencia",
+    "description": "Días con actividad posteriores al alta sobre días observables posteriores al alta, en los últimos 30 días, como media ponderada de todos los usuarios.",
+    "source": "POST /kpis/snapshots del back: UserActivityDay",
+    "aggregation": "avg",
+    "justification": "Mide frecuencia de retorno con un dato por día, sin esperar las ventanas de D7/D30."
+  },
+  {
+    "id": "no_show_rate",
+    "origin": "back",
+    "kind": "business",
+    "unit": "%",
+    "name": "No-Show Rate",
+    "description": "Faltas confirmadas (por el organizador o por dos jugadores) sobre el plantel de los partidos cuya ventana de cierre de 48 h terminó en los últimos 30 días.",
+    "source": "POST /kpis/snapshots del back: NoShowReport y Participant",
+    "aggregation": "avg",
+    "justification": "Evalúa la comunidad y la efectividad del sistema de reputación. Viene del Project Charter."
+  },
+  {
+    "id": "matches_per_active_user",
+    "origin": "back",
+    "kind": "business",
+    "unit": "{match}/{user}",
+    "name": "Partidos por usuario activo",
+    "description": "Asistencias reales sobre usuarios con al menos una asistencia en los últimos 30 días. Incluye organizadores; excluye cancelados, bajas tarde y faltas confirmadas.",
+    "source": "POST /kpis/snapshots del back: Participant, Match y NoShowReport",
+    "aggregation": "avg",
+    "justification": "Mide el engagement real. Viene del Project Charter."
+  },
+  {
+    "id": "match_cancellation_rate",
+    "origin": "back",
+    "kind": "business",
+    "unit": "%",
+    "name": "Tasa de cancelación",
+    "description": "Partidos cancelados sobre todos los partidos con fecha en los últimos 30 días.",
+    "source": "POST /kpis/snapshots del back: Match.status",
+    "aggregation": "avg",
+    "justification": "Detecta oferta que se publica pero no se concreta."
+  },
+  {
+    "id": "late_withdrawal_rate",
+    "origin": "back",
+    "kind": "business",
+    "unit": "%",
+    "name": "Tasa de bajas tardías",
+    "description": "Pares únicos usuario-partido con baja a menos de 2 h sobre la unión de esos pares y los participantes finales, en partidos no cancelados de los últimos 30 días.",
+    "source": "POST /kpis/snapshots del back: LateWithdrawal y Participant",
+    "aggregation": "avg",
+    "justification": "Mide abandonos cercanos al inicio y complementa el No-Show Rate."
+  },
+  {
+    "id": "health_latency_p95",
+    "origin": "workflow",
+    "kind": "technical",
+    "unit": "ms",
+    "name": "Latencia p95 de /health",
+    "description": "Percentil 95 de 20 llamadas secuenciales a GET /health de producción por corrida. Las llamadas fallidas cuentan con lo que tardaron, o 10000 ms si vencieron.",
+    "source": "Workflow kpi-report de agents-copilot",
+    "aggregation": "avg",
+    "justification": "Detecta degradación y arranques en frío de Azure que el promedio esconde."
+  },
+  {
+    "id": "pr_lead_time",
+    "origin": "workflow",
+    "kind": "technical",
+    "unit": "h",
+    "name": "Lead time de PR",
+    "description": "Mediana de horas entre que se abre y se mergea un PR humano a dev en SportmatchOrg/sportmatch, en los últimos 30 días. Excluye bots y PRs cerrados sin merge.",
+    "source": "Workflow kpi-report de agents-copilot: API de GitHub",
+    "aggregation": "avg",
+    "justification": "Mide la velocidad de revisión e integración del equipo."
+  },
+  {
+    "id": "api_reachable",
+    "origin": "workflow",
+    "kind": "health",
+    "unit": "1",
+    "name": "API alcanzable",
+    "description": "1 si al menos una de las 20 llamadas a GET /health de producción respondió 200 con la base arriba; 0 si ninguna.",
+    "source": "Workflow kpi-report de agents-copilot",
+    "aggregation": "avg",
+    "justification": "Mide la cadena completa backend-PostgreSQL desde afuera del servicio."
+  }
+]

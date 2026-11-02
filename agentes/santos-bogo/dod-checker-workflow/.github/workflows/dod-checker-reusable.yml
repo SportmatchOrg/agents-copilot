@@ -1,0 +1,161 @@
+name: ↳ DoD checker
+
+# Lógica del agente. El repo llamador solo tiene un wrapper que dice CUÁNDO
+# corre (github/workflows/dod-checker.yml).
+#
+# Verifica la Definition of Done del PR (AGENTS.md §6) contra el ticket de
+# Linear de la rama. Publica con el formato común
+# (.github/scripts/common/agent_report.py):
+#   - PR: un comentario con el veredicto arriba y la tabla plegada.
+#   - Linear y Discord: solo cuando el veredicto CAMBIA (la primera vez, solo
+#     si no cumple). Antes comentaba el ticket en cada push.
+#   - PR sin ticket: si está LINEAR_TEAM_KEY, crea un ticket de seguimiento
+#     una sola vez por PR (antes, uno por push).
+#   - PRs de release (head = dev): no corre. No tienen un ticket propio y el
+#     veredicto salía siempre "N/A".
+
+on:
+  workflow_call:
+    inputs:
+      agents_ref:
+        description: Rama o tag de agents-copilot con la lógica del agente.
+        type: string
+        default: main
+      skip_release_prs:
+        description: No correr en las PRs cuyo head es `dev` (releases dev → main).
+        type: boolean
+        default: true
+    secrets:
+      LLM_API_KEY:
+        description: API key del proveedor LLM (Gemini u otro OpenAI-compatible).
+        required: false
+      LINEAR_API_KEY:
+        description: Opcional. Sin ella se omite toda la integración con Linear.
+        required: false
+      DISCORD_WEBHOOK:
+        description: Webhook de Discord donde avisar.
+        required: false
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  dod-checker:
+    runs-on: ubuntu-latest
+    if: ${{ !(inputs.skip_release_prs && github.event.pull_request.head.ref == 'dev') }}
+
+    concurrency:
+      group: dod-checker-${{ github.repository }}-${{ github.event.pull_request.number }}
+      cancel-in-progress: true
+
+    env:
+      AR: _agents-copilot/.github/scripts/common/agent_report.py
+      LINEAR_SH: _agents-copilot/github/scripts/linear.sh
+      PR: ${{ github.event.pull_request.number }}
+
+    steps:
+      - name: Checkout de agents-copilot (lógica del agente)
+        uses: actions/checkout@v4
+        with:
+          repository: SportmatchOrg/agents-copilot
+          ref: ${{ inputs.agents_ref }}
+          path: _agents-copilot
+          persist-credentials: false
+
+      - name: Recolectar estado del PR (diff, título)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh pr view "$PR" --repo "$GITHUB_REPOSITORY" --json title,headRefName > meta.json
+          gh pr diff "$PR" --repo "$GITHUB_REPOSITORY" > diff.txt || echo "(sin diff)" > diff.txt
+
+      # Convención de rama: la que genera Linear ("Branch name"), ej. feature/SPO-42-login.
+      - name: Buscar el ticket de Linear vinculado a la rama
+        id: linear_issue
+        env:
+          LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
+        run: |
+          IDENT=$(jq -r .headRefName meta.json | grep -oiE '[a-z]+-[0-9]+' | head -1 | tr '[:lower:]' '[:upper:]' || true)
+          echo "identifier=$IDENT" >> "$GITHUB_OUTPUT"
+          if [ -n "$IDENT" ] && [ -n "${LINEAR_API_KEY:-}" ]; then
+            bash "$LINEAR_SH" find-by-identifier "$IDENT" > linear_issue.json 2>/dev/null || true
+          fi
+          [ -s linear_issue.json ] || echo '{}' > linear_issue.json
+          echo "issue_id=$(jq -r '.id // empty' linear_issue.json)" >> "$GITHUB_OUTPUT"
+
+      - name: Armar el prompt
+        run: |
+          {
+            echo "Sos el DoD Checker de SportMatch. Verificá la Definition of Done de este PR (AGENTS.md §6) con la evidencia de abajo. NO cerrás nada: reportás."
+            echo "Criterios (son 3, no inventes más): 1) Criterios de aceptación cumplidos — es el punto clave: si hay un TICKET DE LINEAR abajo, su title/description son la fuente de verdad de los AC; si viene vacío, deducí el RF del título/rama contra AGENTS.md §2 y avisá que es una inferencia. 2) Doc actualizada si aplica: SOLO aplica si el cambio toca setup del proyecto, variables de entorno, la API pública (endpoints) o convenciones del producto. Cambios de CI, workflows, tests, refactors internos o código nuevo que no cambia cómo se usa algo NO requieren doc: ponelo ⚪ N-A, nunca ❌. 3) Sin deuda nueva (TODOs sin ticket, código muerto, tests skippeados)."
+            echo "Juzgá los AC contra el CÓDIGO del diff: ¿el cambio implementa lo que pide cada criterio? No pidas evidencia que un diff no puede mostrar:"
+            echo "- lint, build, CI, merge y deploy: los garantiza la branch protection. No son hallazgos."
+            echo "- tests automatizados: están fuera de alcance del proyecto. Que no haya tests NO es un hallazgo."
+            echo "- capturas, responsive a 375px, igualdad con Figma: las verifica el QA a mano. Un AC así va como ⚪ N-A en la tabla, nunca como ❌ ni como finding."
+            echo "Si el código implementa los AC verificables, el veredicto es 'Listo para cerrar' aunque queden AC de QA manual."
+            echo "Cómo llenar el formato:"
+            echo "- status: ok = cumple los 3; fail = alguno no se cumple; warn = no hay ticket de Linear y los AC son inferidos, o falta evidencia para decidir."
+            echo "- summary: el veredicto en una línea: 'Listo para cerrar' o 'No cumple: <qué falta>'."
+            echo "- findings: uno por cada cosa que falta. AC sin cumplir = urgent; doc o deuda = important; detalles = minor. ref = archivo:línea o el identifier del ticket."
+            echo "- sections: exactamente una, {\"title\": \"Tabla DoD\", \"open\": false, \"body\": tabla markdown de 3 filas (criterio | ✅/❌/⚪ N-A | evidencia)}."
+            echo ""
+            python3 "$AR" contract
+            echo ""
+            echo "=== META ==="; cat meta.json
+            echo ""
+            echo "=== TICKET DE LINEAR VINCULADO ==="; cat linear_issue.json
+            echo ""
+            echo "=== DIFF ==="; head -c 60000 diff.txt
+          } > prompt.txt
+
+      - name: Llamar al modelo
+        env:
+          LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
+          LLM_BASE_URL: ${{ vars.LLM_BASE_URL }}
+          LLM_MODEL: ${{ vars.LLM_MODEL }}
+          LLM_FALLBACK_MODELS: ${{ vars.LLM_FALLBACK_MODELS }}
+        run: python3 "$AR" ask --prompt prompt.txt --agent dod-checker --title "Definition of Done" --out report.json
+
+      - name: Publicar (PR, Discord y el ticket de Linear)
+        id: publish
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK }}
+          LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          ISSUE_ID: ${{ steps.linear_issue.outputs.issue_id }}
+        run: |
+          LINEAR_ARGS=()
+          if [ -n "$ISSUE_ID" ] && [ -n "${LINEAR_API_KEY:-}" ]; then
+            LINEAR_ARGS=(--linear-issue-id "$ISSUE_ID" --linear-policy changed)
+          fi
+          python3 "$AR" publish --report report.json --pr "$PR" \
+            --discord-policy changed "${LINEAR_ARGS[@]}" \
+            --context "PR #$PR · $PR_TITLE" --link "$PR_URL"
+
+      # Sin ticket = problema de trazabilidad (AGENTS.md §8.5). Se crea la tarjeta
+      # una sola vez: cuando el PR todavía no tenía comentario del DoD checker.
+      - name: Crear ticket de seguimiento si el PR no referencia ninguno
+        if: steps.publish.outputs.existed == 'false' && steps.publish.outputs.status != 'unknown' && steps.linear_issue.outputs.issue_id == ''
+        env:
+          LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
+          LINEAR_TEAM_KEY: ${{ vars.LINEAR_TEAM_KEY }}
+          IDENT: ${{ steps.linear_issue.outputs.identifier }}
+          PR_URL: ${{ github.event.pull_request.html_url }}
+        run: |
+          if [ -z "${LINEAR_API_KEY:-}" ] || [ -z "${LINEAR_TEAM_KEY:-}" ]; then
+            echo "Sin LINEAR_API_KEY o sin variable LINEAR_TEAM_KEY: no se crea ticket de seguimiento."
+            exit 0
+          fi
+          if [ -n "$IDENT" ]; then
+            echo "La rama referencia $IDENT pero no está en Linear (¿otro team, o no existe?). No se crea nada."
+            exit 0
+          fi
+          TEAM_ID=$(bash "$LINEAR_SH" team-id "$LINEAR_TEAM_KEY")
+          [ -n "$TEAM_ID" ] || { echo "No se resolvió el team $LINEAR_TEAM_KEY."; exit 0; }
+          python3 "$AR" render --report report.json --target linear > body.md
+          printf '\nPR: %s\n\n---\n*Creado por el DoD checker: la rama de este PR no referencia ningún ticket de Linear (trazabilidad, AGENTS.md §8.5). Asociar el RF correspondiente.*\n' "$PR_URL" >> body.md
+          CREATED=$(bash "$LINEAR_SH" create-issue "$TEAM_ID" "PR sin ticket: $(jq -r .title meta.json)" body.md)
+          echo "${CREATED:-No se pudo crear el ticket (revisar permisos de LINEAR_API_KEY).}"

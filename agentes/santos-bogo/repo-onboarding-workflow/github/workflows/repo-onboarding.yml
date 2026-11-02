@@ -1,0 +1,16 @@
+name: Onboarding (refresh mensual)
+
+on:
+  schedule:
+    - cron: "0 13 1 * *"
+  workflow_dispatch:
+
+jobs:
+  repo-onboarding:
+    permissions:
+      contents: write
+      pull-requests: write
+    uses: SportmatchOrg/agents-copilot/.github/workflows/repo-onboarding-reusable.yml@main
+    secrets:
+      LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
+      DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK_PLANNING }}

@@ -1,0 +1,16 @@
+name: Traductor de PR a negocio
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    branches: [dev, main]
+
+jobs:
+  pr-business-translator:
+    permissions:
+      contents: read
+      pull-requests: write
+    uses: SportmatchOrg/agents-copilot/.github/workflows/pr-business-translator-reusable.yml@main
+    secrets:
+      LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
+      DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK_QA }}

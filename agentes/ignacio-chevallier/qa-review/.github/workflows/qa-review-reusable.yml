@@ -1,0 +1,259 @@
+name: ↳ QA Review
+
+# Prepara una GitHub Review en estado PENDING para una PR del repo que llama a
+# este workflow. La review NO se envía: queda como borrador visible solo para el
+# QA, que la edita y decide Approve / Comment / Request changes.
+#
+# Toda la lógica vive acá, en SportmatchOrg/agents-copilot. El repo de desarrollo
+# solo necesita un wrapper de ~10 líneas (ver github/workflows/qa-review.yml).
+#
+# Pipeline:
+#   checkout → contexto del PR → checks determinísticos → Linear
+#            → Scout (LLM) → resolver (solo lectura) → Reviewer (LLM)
+#            → validador determinístico → Pending Review API
+#
+# El agente nunca ve el QA_GITHUB_TOKEN y nunca escribe en el repo: los checkouts
+# van sin credenciales persistidas y el validador aborta si el workspace cambió.
+
+on:
+  workflow_call:
+    inputs:
+      agents_ref:
+        description: Rama o tag de agents-copilot con la lógica del reviewer.
+        type: string
+        default: main
+      llm_base_url:
+        description: >
+          Endpoint chat/completions compatible con OpenAI. Si se deja vacío usa la
+          variable LLM_BASE_URL del repo que llama — la misma que ya configura a
+          los otros agentes del paquete — y si tampoco está, cae al default del
+          cliente (Gemini). Precedencia: este input > vars.LLM_BASE_URL > default.
+          Así, cambiar de proveedor para todos los agentes es cambiar una sola
+          variable de repo.
+        type: string
+        default: ""
+      llm_model:
+        description: >
+          Modelo del agente. Nunca se hardcodea en el código. Misma precedencia que
+          llm_base_url: este input > vars.LLM_MODEL del repo que llama > default del
+          cliente. Probado con gemini-3.6-flash y con minimax/minimax-m3:free.
+        type: string
+        default: ""
+      pr_size_limit:
+        description: Límite de líneas revisables por PR (QA-01).
+        type: number
+        default: 1000
+      max_asset_bytes:
+        description: Tamaño a partir del cual un asset nuevo se marca (QA-07).
+        type: number
+        default: 512000
+    secrets:
+      QA_GITHUB_TOKEN:
+        description: >
+          Fine-grained PAT del QA (Contents:Read, Pull requests:Read and write,
+          Metadata:Read en el repo revisado; Contents:Read en agents-copilot).
+          Una pending review solo la ve quien la creó: por eso tiene que ser el
+          token del QA y no el GITHUB_TOKEN del bot.
+        required: true
+      QA_LLM_API_KEY:
+        description: >
+          API key del proveedor del LLM para ESTE agente. Existe aparte de
+          LLM_API_KEY porque los otros agentes del paquete apuntan a Gemini y
+          este a OpenRouter: si compartieran secret, la key de uno rompería al
+          otro. Si no está, se usa LLM_API_KEY.
+        required: false
+      LLM_API_KEY:
+        description: Fallback, para repos donde ya apunta al mismo proveedor.
+        required: false
+      LINEAR_API_KEY:
+        description: Opcional. Sin ella, QA-01 (scope) se evalúa solo contra el título del PR.
+        required: false
+
+# Techo de lo que puede usar el GITHUB_TOKEN acá dentro. OJO: esto solo REDUCE
+# lo que el repo que llama le pasa al job; no lo amplía. El wrapper del repo de
+# desarrollo tiene que declarar estos mismos permisos, o GitHub rechaza el
+# workflow sin crear ningún job.
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  qa-review:
+    runs-on: ubuntu-latest
+
+    # Un solo análisis activo por PR: si el developer pushea dos veces seguidas,
+    # se cancela el viejo y solo se analiza el HEAD más reciente.
+    # Va a nivel de JOB y no de workflow: en un reusable, un `concurrency:` de
+    # workflow hace que GitHub rechace el archivo entero.
+    concurrency:
+      group: qa-review-${{ github.repository }}-${{ github.event.pull_request.number }}
+      cancel-in-progress: true
+
+    # PRs de forks: GitHub no expone secrets ahí, y no usamos pull_request_target
+    # para saltear esa protección (plan §28). Las draft PRs esperan a ready_for_review.
+    # En una sola línea a propósito: un `if:` plegado con `>-` en varias líneas hace
+    # que GitHub rechace el workflow entero ("workflow file issue", sin crear ningún
+    # job). Verificado bisecando contra el sandbox.
+    if: github.event.pull_request.draft == false && github.event.pull_request.head.repo.full_name == github.repository
+
+    env:
+      TARGET: ${{ github.workspace }}/target
+      AGENTS: ${{ github.workspace }}/agents-copilot
+      SCRIPTS: ${{ github.workspace }}/agents-copilot/.github/scripts/qa-review
+      PR_NUMBER: ${{ github.event.pull_request.number }}
+      HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+
+    steps:
+      # RUNNER_TEMP solo existe dentro de los steps: el contexto `runner` no está
+      # disponible en el `env:` del job. El contexto va fuera del workspace para
+      # que el checkout del repo revisado quede intacto y el validador pueda
+      # exigir `git status --porcelain` vacío.
+      - name: Preparar rutas
+        run: echo "QA_CTX=$RUNNER_TEMP/qa-context" >> "$GITHUB_ENV"
+
+      # `ref: head.sha` es importante: por defecto checkout deja el merge commit,
+      # y entonces los números de línea del diff no coincidirían con los que
+      # GitHub usa para los comentarios inline.
+      - name: Checkout del repo a revisar
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.repository }}
+          ref: ${{ github.event.pull_request.head.sha }}
+          path: target
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Checkout de agents-copilot (lógica del reviewer)
+        uses: actions/checkout@v4
+        with:
+          repository: SportmatchOrg/agents-copilot
+          ref: ${{ inputs.agents_ref }}
+          path: agents-copilot
+          # agents-copilot es privado: el GITHUB_TOKEN del repo que llama no
+          # tiene acceso. El PAT sí (Contents: Read).
+          token: ${{ secrets.QA_GITHUB_TOKEN }}
+          persist-credentials: false
+
+      # Se pregunta ANTES de gastar llamadas al modelo si esta corrida va a poder
+      # publicar algo. Si el QA ya está trabajando su borrador, no tiene sentido
+      # analizar: el resultado se descartaría igual.
+      - name: Preflight — ¿hay un borrador del QA que preservar?
+        id: preflight
+        env:
+          QA_GITHUB_TOKEN: ${{ secrets.QA_GITHUB_TOKEN }}
+        run: |
+          python3 "$SCRIPTS/create-pending-review.py" --preflight \
+            --ctx "$QA_CTX" \
+            --repo "${{ github.repository }}" \
+            --pr "$PR_NUMBER" \
+            --head-sha "$HEAD_SHA"
+
+      # --- Contexto ------------------------------------------------------
+      - name: Recolectar contexto del PR y el ticket de Linear
+        if: steps.preflight.outputs.proceed == 'true'
+        env:
+          # Solo lectura del propio repo: el PAT no hace falta acá.
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
+          LINEAR_SH: ${{ github.workspace }}/agents-copilot/github/scripts/linear.sh
+        run: |
+          bash "$SCRIPTS/collect-context.sh" \
+            "$TARGET" "$PR_NUMBER" "${{ github.repository }}" "$QA_CTX"
+
+      - name: Checks determinísticos
+        id: checks
+        if: steps.preflight.outputs.proceed == 'true'
+        env:
+          QA_PR_SIZE_LIMIT: ${{ inputs.pr_size_limit }}
+          QA_MAX_ASSET_BYTES: ${{ inputs.max_asset_bytes }}
+        run: |
+          python3 "$SCRIPTS/deterministic-checks.py" \
+            --patch "$QA_CTX/diff.patch" \
+            --repo "$TARGET" \
+            --base-sha "$(jq -r .baseRefOid "$QA_CTX/meta.json")" \
+            --head-sha "$HEAD_SHA" \
+            --out "$QA_CTX/deterministic-facts.json"
+
+      # --- Agente (dos pasos) --------------------------------------------
+      # Ningún step de acá abajo recibe QA_GITHUB_TOKEN.
+      - name: Scout — decidir qué inspeccionar del repo
+        id: scout
+        if: steps.preflight.outputs.proceed == 'true' && steps.checks.outputs.has_changes == 'true'
+        env:
+          LLM_API_KEY: ${{ secrets.QA_LLM_API_KEY || secrets.LLM_API_KEY }}
+          LLM_BASE_URL: ${{ inputs.llm_base_url || vars.LLM_BASE_URL }}
+          LLM_MODEL: ${{ inputs.llm_model || vars.LLM_MODEL }}
+        run: |
+          python3 "$SCRIPTS/run-scout.py" \
+            --ctx "$QA_CTX" --agents-repo "$AGENTS" --target-repo "$TARGET"
+
+      - name: Resolver el contexto pedido (solo lectura)
+        if: steps.preflight.outputs.proceed == 'true' && steps.checks.outputs.has_changes == 'true' && steps.scout.outputs.llm_unavailable != 'true'
+        run: |
+          python3 "$SCRIPTS/resolve-context.py" \
+            --ctx "$QA_CTX" --target-repo "$TARGET"
+
+      - name: Reviewer — generar review.json
+        id: reviewer
+        if: steps.preflight.outputs.proceed == 'true' && steps.checks.outputs.has_changes == 'true' && steps.scout.outputs.llm_unavailable != 'true'
+        env:
+          LLM_API_KEY: ${{ secrets.QA_LLM_API_KEY || secrets.LLM_API_KEY }}
+          LLM_BASE_URL: ${{ inputs.llm_base_url || vars.LLM_BASE_URL }}
+          LLM_MODEL: ${{ inputs.llm_model || vars.LLM_MODEL }}
+        run: |
+          python3 "$SCRIPTS/run-reviewer.py" \
+            --ctx "$QA_CTX" --agents-repo "$AGENTS" --target-repo "$TARGET"
+
+      # --- Validación ----------------------------------------------------
+      - name: Validar la review antes de tocar GitHub
+        if: steps.preflight.outputs.proceed == 'true' && steps.checks.outputs.has_changes == 'true' && steps.scout.outputs.llm_unavailable != 'true' && steps.reviewer.outputs.llm_unavailable != 'true'
+        run: |
+          python3 "$SCRIPTS/validate-review.py" \
+            --ctx "$QA_CTX" --target-repo "$TARGET" --head-sha "$HEAD_SHA"
+
+      # --- Único side effect ---------------------------------------------
+      - name: Crear la pending review a nombre del QA
+        if: steps.preflight.outputs.proceed == 'true' && steps.checks.outputs.has_changes == 'true' && steps.scout.outputs.llm_unavailable != 'true' && steps.reviewer.outputs.llm_unavailable != 'true'
+        env:
+          QA_GITHUB_TOKEN: ${{ secrets.QA_GITHUB_TOKEN }}
+        run: |
+          python3 "$SCRIPTS/create-pending-review.py" \
+            --ctx "$QA_CTX" \
+            --repo "${{ github.repository }}" \
+            --pr "$PR_NUMBER" \
+            --head-sha "$HEAD_SHA"
+
+      # --- Observabilidad -------------------------------------------------
+      - name: Resumen del job
+        if: always()
+        run: |
+          {
+            echo "### QA Review — PR #$PR_NUMBER"
+            echo ""
+            echo '```'
+            cat "$QA_CTX/summary.txt" 2>/dev/null || echo "(no se llegó a recolectar contexto)"
+            echo '```'
+            if [ -f "$QA_CTX/deterministic-facts.json" ]; then
+              echo ""
+              echo "| Check | Valor |"
+              echo "|---|---|"
+              jq -r '
+                "| Líneas revisables | \(.reviewableChangedLines) / \(.prSizeLimit) |",
+                "| Dependencias nuevas | \(.newDependencies | length) |",
+                "| Debugging | \(.debugStatements | length) |",
+                "| Márgenes | \(.marginUsages | length) |",
+                "| Assets pesados | \(.largeAssets | length) |"
+              ' "$QA_CTX/deterministic-facts.json"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      # Los prompts y las salidas del modelo quedan guardados: es la única forma
+      # de entender un falso positivo durante el pilot (Fase 14).
+      - name: Guardar el contexto del análisis
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: qa-review-pr${{ github.event.pull_request.number }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/qa-context
+          retention-days: 14
+          if-no-files-found: ignore

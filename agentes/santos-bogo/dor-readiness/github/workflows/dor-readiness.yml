@@ -1,0 +1,16 @@
+name: Definition of Ready — digest semanal
+
+on:
+  schedule:
+    - cron: "0 12 * * 1"
+  workflow_dispatch:
+
+jobs:
+  dor-readiness:
+    permissions:
+      contents: read
+    uses: SportmatchOrg/agents-copilot/.github/workflows/dor-readiness-reusable.yml@main
+    secrets:
+      LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
+      LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
+      DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK_PLANNING }}

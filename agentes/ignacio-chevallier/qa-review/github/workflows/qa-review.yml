@@ -1,0 +1,54 @@
+name: QA Review
+
+# Wrapper. Toda la lógica del QA PR Review Agent vive en
+# SportmatchOrg/agents-copilot: acá solo se declara cuándo corre.
+#
+# Qué hace: al abrir o actualizar una PR a dev/main, prepara una GitHub Review
+# en estado PENDING a nombre del QA, con un resumen, lo positivo y hasta 5
+# findings (inline o generales) según los criterios QA-01…QA-10.
+#
+# La review NO se envía sola y el developer NO la ve: queda como borrador del
+# QA, que edita, borra falsos positivos, agrega lo suyo y recién ahí elige
+# Approve / Comment / Request changes y hace Submit.
+#
+# Secrets necesarios en ESTE repo (pasados explícitos abajo, sin `secrets: inherit`):
+#   QA_GITHUB_TOKEN  Fine-grained PAT del QA. Una pending review solo la ve quien
+#                    la creó, así que tiene que ser el token de una persona.
+#                    Permisos: en este repo -> Contents: Read,
+#                              Pull requests: Read and write, Metadata: Read
+#                              en agents-copilot -> Contents: Read, Metadata: Read
+#   LLM_API_KEY      La misma que ya usan los otros agentes. Por defecto este
+#                    agente apunta a Gemini, igual que ellos, así que no hace
+#                    falta ninguna key nueva.
+#   QA_LLM_API_KEY   Opcional. Solo si querés que ESTE agente use otro proveedor
+#                    (ej. OpenRouter) sin tocar la key de los demás. Si está,
+#                    tiene prioridad sobre LLM_API_KEY.
+#   LINEAR_API_KEY   Opcional. Sin ella, QA-01 (scope) se evalúa solo contra el título.
+#
+# Para cambiar de modelo no hace falta tocar código: se pasa `llm_model` acá abajo.
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+    branches: [dev, main]
+
+jobs:
+  qa-review:
+    # Estos permisos hay que declararlos ACÁ, no alcanza con declararlos en el
+    # workflow central: un workflow llamado solo puede REDUCIR lo que el llamador
+    # le pasa, nunca ampliarlo. Si el repo tiene "Read repository contents"
+    # como permiso por defecto, sin esto GitHub rechaza el workflow entero con
+    # "workflow file issue" y ni siquiera crea el job.
+    permissions:
+      contents: read
+      pull-requests: read
+
+    # Mientras la PR está en draft el developer sigue trabajando: no metemos ruido.
+    # Al marcarla "Ready for review" se dispara `ready_for_review` y corre.
+    if: github.event.pull_request.draft == false
+    uses: SportmatchOrg/agents-copilot/.github/workflows/qa-review-reusable.yml@main
+    secrets:
+      QA_GITHUB_TOKEN: ${{ secrets.QA_GITHUB_TOKEN }}
+      LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
+      QA_LLM_API_KEY: ${{ secrets.QA_LLM_API_KEY }}
+      LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}

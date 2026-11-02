@@ -1,0 +1,162 @@
+name: ↳ Onboarding (refresh mensual)
+
+# El agente de Onboarding (agente 4) era solo chat mode: dependía de que alguien
+# se acuerde de correrlo, justo en un equipo donde los roles rotan cada mes
+# (AGENTS.md §9). Este workflow lo automatiza: una vez al mes regenera
+# docs/ONBOARDING.md a partir del estado real del repo y abre un PR para que
+# lo revise un humano (no auto-commitea: a diferencia del status report, este
+# doc afecta el primer día de alguien nuevo, un error acá sale caro).
+# Corre el día 1 de cada mes 10:00 ART (13:00 UTC). También disparable a mano.
+
+#
+# Toda la lógica vive acá. El repo llamador solo necesita un wrapper de ~15
+# líneas con el `on:` que quiera (ver github/workflows/repo-onboarding.yml).
+
+on:
+  workflow_call:
+    inputs:
+      agents_ref:
+        description: Rama o tag de agents-copilot con la lógica del agente.
+        type: string
+        default: main
+    secrets:
+      LLM_API_KEY:
+        description: API key del proveedor LLM (OpenAI-compatible; default Gemini).
+        required: false
+      DISCORD_WEBHOOK:
+        description: Webhook de Discord donde postear el resultado.
+        required: false
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  onboarding:
+    runs-on: ubuntu-latest
+
+    # A nivel job: en un reusable, un `concurrency:` de workflow hace que
+    # GitHub rechace el archivo entero.
+    concurrency:
+      group: repo-onboarding-${{ github.repository }}
+      cancel-in-progress: true
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Checkout de agents-copilot (lógica del agente)
+        uses: actions/checkout@v4
+        with:
+          repository: SportmatchOrg/agents-copilot
+          ref: ${{ inputs.agents_ref }}
+          path: _agents-copilot
+          persist-credentials: false
+
+      - name: Evitar duplicar si ya hay un PR de refresh abierto
+        id: existing
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Las ramas llevan fecha (bot/onboarding-refresh-AAAAMMDD): `--head` exige el
+          # nombre exacto y nunca matcheaba, así que se abría un PR nuevo cada mes.
+          OPEN=$(gh pr list --state open --json number,headRefName \
+            -q '[.[] | select(.headRefName | startswith("bot/onboarding-refresh"))][0].number // empty' 2>/dev/null || echo "")
+          echo "open_pr=$OPEN" >> "$GITHUB_OUTPUT"
+
+      - name: Recolectar realidad del repo
+        if: steps.existing.outputs.open_pr == ''
+        run: |
+          {
+            echo "### AGENTS.md"; cat AGENTS.md 2>/dev/null || echo "(no encontrado)"
+            echo ""; echo "### Árbol (3 niveles)"; find . -maxdepth 3 -not -path '*/.git/*' -not -path '*/node_modules/*' | sort | head -200
+            echo ""; echo "### Manifiestos detectados"
+            for f in package.json requirements.txt pom.xml go.mod Dockerfile docker-compose.yml .env.example Makefile; do
+              [ -f "$f" ] && { echo "--- $f ---"; head -60 "$f"; }
+            done
+            echo ""; echo "### Workflows de CI existentes"; ls .github/workflows/ 2>/dev/null
+            echo ""; echo "### ONBOARDING.md actual (si existe)"; cat docs/ONBOARDING.md 2>/dev/null || echo "(no existe todavía)"
+          } > repo.txt
+
+      - name: Armar el prompt
+        if: steps.existing.outputs.open_pr == ''
+        run: |
+          {
+            echo "Sos el Agente de Onboarding de SportMatch. Generá/actualizá docs/ONBOARDING.md para que un dev nuevo (o alguien que rota de rol — los roles rotan cada mes en este equipo) levante el proyecto y haga su primer commit sin preguntarle a nadie."
+            echo "Estructura obligatoria: 1) Qué es SportMatch (3 líneas + link a AGENTS.md), 2) Requisitos previos, 3) Setup paso a paso (comandos reales y copiables), 4) Tests y lint (comandos reales del repo), 5) Flujo de trabajo (branches, commits, PR, DoD — referí a AGENTS.md §6), 6) Mapa del código (1 línea por carpeta principal), 7) Primer día: primera contribución, 8) Problemas comunes."
+            echo "Comandos reales, no placeholders: lo que no puedas determinar del repo, marcalo <!-- TODO: verificar --> y no lo inventes. Español. No documentes nada de la sección 'Fuera de alcance' de AGENTS.md."
+            echo "Respondé solo con el contenido final en Markdown de docs/ONBOARDING.md, sin comentario adicional ni fences de código alrededor."
+            echo ""
+            echo "=== REALIDAD DEL REPO ==="; cat repo.txt
+          } > prompt.txt
+
+      - name: Llamar al modelo
+        if: steps.existing.outputs.open_pr == ''
+        env:
+          LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
+          LLM_BASE_URL: ${{ vars.LLM_BASE_URL }}
+          LLM_MODEL: ${{ vars.LLM_MODEL }}
+          LLM_FALLBACK_MODELS: ${{ vars.LLM_FALLBACK_MODELS }}
+        run: bash _agents-copilot/github/scripts/llm.sh prompt.txt > response.txt
+
+      # Este agente produce un archivo, no un veredicto: el formato común se usa
+      # solo para el aviso en Discord (titular + link al PR).
+      - name: Abrir PR con el onboarding actualizado
+        if: steps.existing.outputs.open_pr == ''
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK }}
+          AR: _agents-copilot/.github/scripts/common/agent_report.py
+        run: |
+          if grep -q "^LLM_UNAVAILABLE" response.txt; then
+            echo "::warning title=Onboarding::el modelo no respondió; se reintenta el mes que viene o a mano. $(cat response.txt)"
+            exit 0
+          fi
+
+          # El router de modelos gratis a veces cae en uno que no escribe (ej. un
+          # clasificador que responde "User Safety: safe"). Una guía de onboarding
+          # real tiene título y varias secciones: si no, no se abre un PR con basura.
+          if ! grep -q '^#' response.txt || [ "$(grep -c '^##' response.txt)" -lt 4 ]; then
+            echo "::warning title=Onboarding::la respuesta no parece una guía (sin título o con menos de 4 secciones); no se abre PR."
+            head -c 2000 response.txt
+            exit 0
+          fi
+
+          mkdir -p docs
+          sed -e '/^```/d' response.txt > docs/ONBOARDING.md
+
+          git config user.name "sportmatch-bot"
+          git config user.email "bot@sportmatch.local"
+
+          # `git add` antes de comparar: `git diff` sin --cached no ve archivos
+          # nuevos, y si el repo todavía no tenía ONBOARDING.md el agente decía
+          # "sin cambios" y nunca lo creaba.
+          git add docs/ONBOARDING.md
+          if git diff --cached --quiet -- docs/ONBOARDING.md; then
+            echo "Sin cambios respecto al onboarding actual, no se abre PR."
+            exit 0
+          fi
+
+          BRANCH="bot/onboarding-refresh-$(date +%Y%m%d)"
+          git checkout -b "$BRANCH"
+          git commit -m "docs: refresh mensual de onboarding (automático)"
+          git push -u origin "$BRANCH"
+
+          URL=$(gh pr create --base dev --head "$BRANCH" \
+            --title "📘 Refresh mensual de onboarding" \
+            --body "Generado automáticamente por el agente de Onboarding. Revisar antes de mergear (regla \"Lab4 no codifica\": la decisión es humana). Compara \`docs/ONBOARDING.md\` contra el estado real del repo." \
+            --label documentation 2>/dev/null || echo "")
+          echo "PR creado: $URL"
+          python3 "$AR" new --agent repo-onboarding --title "Onboarding" --status warn \
+            --summary "Hay un PR con docs/ONBOARDING.md actualizado para revisar." --out report.json
+          python3 "$AR" publish --report report.json --discord-policy always \
+            --context "$GITHUB_REPOSITORY" --link "${URL:-$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/pulls}"
+
+      - name: Avisar que ya había un PR abierto (se omite este mes)
+        if: steps.existing.outputs.open_pr != ''
+        run: |
+          echo "Ya hay un PR de onboarding sin mergear (#${{ steps.existing.outputs.open_pr }}). Se omite generar otro hasta que se resuelva."
+
+# Los secrets los pasa el wrapper del repo llamador; los `vars.*`
+# (LLM_BASE_URL, LLM_MODEL) se resuelven contra ese repo y su organización.

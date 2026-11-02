@@ -1,0 +1,103 @@
+name: ↳ Definition of Ready (digest semanal)
+
+# Lógica del agente. El repo llamador solo tiene un wrapper que dice CUÁNDO
+# corre (github/workflows/dor-readiness.yml).
+#
+# Mira los tickets en Backlog y Todo del team ANTES de que se trabajen y avisa
+# cuáles no están listos (sin AC verificables, sin RF, sin estimar, o
+# demasiado grandes). Solo lee y reporta: no mueve ni edita tickets.
+#
+# La ESTRUCTURA del ticket (sección de AC con checkboxes, referencia RF/WBS,
+# estimación 1–4) la chequea sprint.py sobre el texto completo: son hechos.
+# El modelo solo juzga si los AC que existen son verificables. Antes recibía
+# la descripción cortada a 1500 caracteres, no llegaba a ver la sección de AC
+# (que va después de los Pasos) y marcaba "sin AC" a tickets que sí tenían.
+#
+# Discord: solo si hay tickets con problemas.
+
+on:
+  workflow_call:
+    inputs:
+      agents_ref:
+        description: Rama o tag de agents-copilot con la lógica del agente.
+        type: string
+        default: main
+      linear_team_key:
+        description: Key del team de Linear. Vacío = vars.LINEAR_TEAM_KEY, y si no, SPO.
+        type: string
+        default: ""
+    secrets:
+      LLM_API_KEY:
+        description: API key del proveedor LLM (OpenAI-compatible; default Gemini).
+        required: false
+      LINEAR_API_KEY:
+        description: "Obligatoria en la práctica: sin ella no hay backlog que mirar."
+        required: false
+      DISCORD_WEBHOOK:
+        description: Webhook de Discord donde postear el resultado.
+        required: false
+
+permissions:
+  contents: read
+
+jobs:
+  dor:
+    runs-on: ubuntu-latest
+
+    concurrency:
+      group: dor-readiness-${{ github.repository }}
+      cancel-in-progress: true
+
+    env:
+      AR: _agents-copilot/.github/scripts/common/agent_report.py
+
+    steps:
+      - name: Checkout de agents-copilot (lógica del agente)
+        uses: actions/checkout@v4
+        with:
+          repository: SportmatchOrg/agents-copilot
+          ref: ${{ inputs.agents_ref }}
+          path: _agents-copilot
+          persist-credentials: false
+
+      - name: Traer Backlog y Todo del team
+        env:
+          LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
+          TEAM: ${{ inputs.linear_team_key || vars.LINEAR_TEAM_KEY || 'SPO' }}
+        run: python3 _agents-copilot/.github/scripts/sprint/sprint.py dor-data --team "$TEAM" --out data.json
+
+      - name: Armar el prompt
+        run: |
+          {
+            echo "Sos el agente Definition of Ready de SportMatch. Para cada ticket de abajo (Backlog y Todo) te llega su sección de criterios de aceptación ('acceptance_criteria') y unos 'flags' de estructura."
+            echo "Los 'flags' ya están calculados con el texto completo del ticket (falta de AC, de referencia, de estimación) y se reportan solos: NO los repitas como findings."
+            echo "Tu único trabajo: marcar los tickets cuyos criterios de aceptación existen pero NO son verificables (vagos, sin un resultado observable: 'funciona bien', 'se ve lindo')."
+            echo "Que un criterio dependa de QA manual, de capturas o de Figma NO lo hace inverificable. Ante la duda, no lo marques: un falso positivo acá le hace perder tiempo al PM."
+            echo "Cómo llenar el formato:"
+            echo "- status: ok si no marcaste ninguno; warn si marcaste alguno."
+            echo "- summary: una oración (el resumen final lo arma el código)."
+            echo "- findings: uno por ticket marcado. title = qué criterio es vago y por qué, en una línea corta; ref = el identifier; severity = important (minor si es un detalle)."
+            echo "- sections: []."
+            echo ""
+            python3 "$AR" contract
+            echo ""
+            echo "=== TICKETS ==="; cat data.json
+          } > prompt.txt
+
+      - name: Llamar al modelo
+        env:
+          LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
+          LLM_BASE_URL: ${{ vars.LLM_BASE_URL }}
+          LLM_MODEL: ${{ vars.LLM_MODEL }}
+          LLM_FALLBACK_MODELS: ${{ vars.LLM_FALLBACK_MODELS }}
+        run: python3 "$AR" ask --prompt prompt.txt --agent dor-readiness --title "Definition of Ready" --out report.json
+
+      - name: Publicar
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK }}
+        run: |
+          python3 _agents-copilot/.github/scripts/sprint/sprint.py dor-finish --report report.json --data data.json
+          python3 "$AR" publish --report report.json \
+            --discord-policy not-ok \
+            --context "backlog de Linear" \
+            --link "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
