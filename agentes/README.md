@@ -85,6 +85,11 @@ de construir una pieza, la reserva acá con un commit a `main`, así nadie hace 
 
 | Nombre | Tipo | Integrante | Fecha |
 |---|---|---|---|
+| `revisar-migracion` | comando | Ignacio Chevallier | 2026-11-02 |
+| `revisar-diseno` | agente | Ignacio Chevallier | 2026-11-02 |
+| `analizar-cambio-alcance` | skill | Ignacio Chevallier | 2026-11-02 |
+| `partir-pr` | comando | Ignacio Chevallier | 2026-11-02 |
+| `estimar-ticket` | skill | Ignacio Chevallier | 2026-11-02 |
 
 ## Estado para el Prompt 1
 
