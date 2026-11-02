@@ -35,3 +35,9 @@ No mergees ni apliques cambios de forma autónoma. Comentá con evidencia y, si 
 ## Salida
 No resumas lo que hace el PR: quien revisa ya lo sabe. Cerrá con el **veredicto**:
 Aprobar / Aprobar con cambios menores / Solicitar cambios.
+
+## Ejemplo de uso
+
+**Pedido:** Copilot code review revisa la PR `feat(RF-05): aceptar solicitudes`.
+
+**Resultado:** Hallazgos con `archivo:línea`, severidad (BLOCKER, MAJOR, MINOR o NIT) y una sugerencia concreta sobre bugs, criterios de aceptación del RF-05 no cubiertos, seguridad, resiliencia, mantenibilidad y convenciones. Cierra con el veredicto: Aprobar, Aprobar con cambios menores o Solicitar cambios.

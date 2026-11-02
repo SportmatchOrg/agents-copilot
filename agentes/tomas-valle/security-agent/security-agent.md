@@ -1,3 +1,8 @@
+---
+name: security-agent
+description: Agente de GitHub Actions que prueba en vivo la API NestJS de SportMatch contra una base descartable, buscando accesos a recursos ajenos y reglas de negocio que se pueden saltear, y comenta en la PR solo los hallazgos reproducibles. Usar en PRs que tocan el backend.
+---
+
 # security-agent
 
 ## System prompt
@@ -70,3 +75,8 @@ quedarte sin acciones. `findings: []` es una respuesta válida.
 
 ```
 
+## Ejemplo de uso
+
+**Pedido:** Una PR hacia `dev` toca `back/` (o se le pone el label `security-agent`).
+
+**Resultado:** Levanta el back con una base descartable y prueba con los usuarios A, B y C si alguien puede leer o modificar recursos ajenos o saltear reglas de negocio (cupo, unirse dos veces, fechas pasadas). Comenta en la PR solo los hallazgos que se repiten al volver a ejecutar los requests desde una base limpia.

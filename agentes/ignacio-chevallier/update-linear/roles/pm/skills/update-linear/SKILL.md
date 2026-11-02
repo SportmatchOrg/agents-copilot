@@ -97,3 +97,9 @@ node --env-file=.env.local scripts/linear-update.mjs --post <archivo.md> --healt
 ```
 
 Imprime la URL del update. Pasársela a quien lo pidió.
+
+## Ejemplo de uso
+
+**Pedido:** Dejá el update semanal en Linear.
+
+**Resultado:** Con el snapshot de la semana (`linear-update.mjs`) redacta el update del proyecto (avance, actividades clave, desvíos, riesgos y próximos pasos) con su salud (on track, at risk u off track), y lo publica en Linear solo después del OK.

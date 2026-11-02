@@ -1,3 +1,8 @@
+---
+name: dor-readiness
+description: Agente programado (GitHub Actions, los lunes) que revisa el backlog de Linear y marca los tickets con criterios de aceptación no verificables, además de los que no tienen criterios, referencia o estimación. Usar para preparar el backlog antes de planificar el sprint.
+---
+
 # dor-readiness
 
 Extraído sin cambios del paso "Armar el prompt" de `.github/workflows/dor-readiness-reusable.yml`. Lo que el workflow inserta al correr queda marcado como `{{...}}`.
@@ -18,3 +23,9 @@ Cómo llenar el formato:
 === TICKETS ===
 {{contenido de data.json}}
 ```
+
+## Ejemplo de uso
+
+**Pedido:** La corrida programada de los lunes (o una ejecución manual del workflow).
+
+**Resultado:** Lista los tickets de Backlog y Todo sin criterios de aceptación, sin referencia o sin estimación, y marca uno por uno los que tienen criterios vagos ("funciona bien", "se ve lindo"). Avisa por Discord solo si encontró tickets con problemas.

@@ -28,3 +28,9 @@ Nada de sección de historia/RF: la trazabilidad la chequea el DoD checker.
 - Sé honesto con el riesgo; sobre-advertí en flujos Must.
 - Los máximos de arriba son techos duros: si no entra, cortá. Todo el comentario tiene que entrar en una pantalla.
 - Si el PR mezcla varias historias o no parece mapear a ningún RF, mencionalo en una línea dentro de "Qué hace este cambio" — pero sin abrir una sección para eso.
+
+## Ejemplo de uso
+
+**Pedido:** Explicame la PR #92 para decidir si la apruebo.
+
+**Resultado:** Tres secciones sin jerga técnica: qué hace el cambio (hasta 3 líneas), el riesgo (bajo, medio o alto y por qué) y los 3 checks que hay que probar antes de aprobar.

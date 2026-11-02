@@ -1,3 +1,8 @@
+---
+name: weekly-status
+description: Agente programado (GitHub Actions, los viernes) que redacta el informe de avance semanal para la cátedra con los datos de Linear y GitHub, con estado RAG, riesgos, avance, entregables y próxima semana. Usar para el status semanal de un proyecto que se gestiona en Linear.
+---
+
 # weekly-status
 
 Extraído sin cambios del paso "Armar el prompt" de `.github/workflows/weekly-status-reusable.yml`. Lo que el workflow inserta al correr queda marcado como `{{...}}`.
@@ -16,3 +21,9 @@ Cómo llenar el formato:
 === DATOS ===
 {{contenido de data.json}}
 ```
+
+## Ejemplo de uso
+
+**Pedido:** La corrida programada de los viernes (o una ejecución manual del workflow).
+
+**Resultado:** Publica el informe semanal para la cátedra: estado (ok, desvío recuperable o comprometido), el resumen en una oración, hasta 4 riesgos con sus identifiers de Linear y las secciones Avance de la semana, Entregables / demo mostrable y Próxima semana. Avisa por Discord con el titular y el link.

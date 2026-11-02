@@ -115,3 +115,9 @@ RUIDO (si hay)
 - **Contra el 17/09.** Si algo compromete la demo y no solo la semana, decirlo aparte.
 - Con argumento (`/pulse pache`, `/pulse SPO-164`), acotar el reporte a esa lane o ese ticket, con los
   mismos cruces.
+
+## Ejemplo de uso
+
+**Pedido:** /pulse ¿cómo venimos con el sprint?
+
+**Resultado:** Un reporte de solo lectura que cruza el plan del sprint con Linear, las PRs abiertas y mergeadas y los commits: qué va a entrar al cierre del jueves, qué está en riesgo y qué hacer hoy. Las acciones quedan propuestas para que las ejecute el PO.

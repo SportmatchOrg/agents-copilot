@@ -30,3 +30,9 @@ Un `README.md` (o `docs/ONBOARDING.md` si el README ya es sobre el producto) con
 - Escribí para alguien de 3er año sin contexto del proyecto.
 - Verificá mentalmente que la secuencia de setup funcione de arriba a abajo.
 - No documentes features fuera de alcance (AGENTS.md §1).
+
+## Ejemplo de uso
+
+**Pedido:** Generá la guía de onboarding para alguien que entra al proyecto este mes.
+
+**Resultado:** Un `README.md` o `docs/ONBOARDING.md` con las 8 secciones (qué es, requisitos, setup paso a paso con comandos reales, tests y lint, flujo de trabajo, mapa del código, primera contribución y problemas comunes). Lo que no pudo confirmar en el repo queda marcado con `<!-- TODO: verificar -->`.

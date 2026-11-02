@@ -1,3 +1,8 @@
+---
+name: test-agent
+description: Agente de GitHub Actions que escribe y corre tests e2e (Jest, NestJS, Prisma) de la API de SportMatch a partir de los criterios de aceptación de un ticket de Linear, itera hasta que pasan y abre una PR con el test. Usar cuando un ticket de back necesita cobertura de integración.
+---
+
 # test-agent
 
 ## System prompt
@@ -182,3 +187,8 @@ marcándolo `it.failing(...)`, que deja la suite en verde.
 
 ```
 
+## Ejemplo de uso
+
+**Pedido:** Correr el workflow `test-agent` a mano con el ticket `SPO-168`.
+
+**Resultado:** Con el contexto del módulo ya cargado, escribe un `back/test/<nombre>.e2e-spec.ts`, lo corre contra la app Nest real con la base vacía y corrige hasta cubrir los criterios de aceptación (como máximo 15 iteraciones). Cierra con la cobertura por criterio y los bugs sospechados, y abre una PR con el test.

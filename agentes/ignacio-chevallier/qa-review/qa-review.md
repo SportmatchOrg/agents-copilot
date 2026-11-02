@@ -1,4 +1,11 @@
+---
+name: qa-review
+description: Agente de GitHub Actions que prepara una review PENDING de cada PR a dev o main a nombre del QA, aplicando la skill pr-review y los criterios QA-01 a QA-10 de SportMatch. Usar para que el QA arranque cada review con un borrador ya armado.
+---
+
 # qa-review
+
+**Requiere la skill `pr-review`** (pieza de Matías Chialva, `g11-pr-review` en el catálogo): el Reviewer lee `github/skills/pr-review/SKILL.md` y `references/qa-criteria.md` del repo de agentes. No se copia acá para no duplicar la pieza.
 
 ## Scout
 
@@ -134,3 +141,8 @@ Respondé ÚNICAMENTE este objeto JSON, sin markdown ni backticks:
 
 ```
 
+## Ejemplo de uso
+
+**Pedido:** Se abre una PR hacia `dev` que agrega un componente nuevo y una dependencia.
+
+**Resultado:** El Scout pide los archivos y búsquedas que necesita (los usos de la dependencia, componentes parecidos ya existentes) y el Reviewer aplica la skill pr-review y los criterios QA. Queda una review PENDING a nombre del QA con hasta 5 comentarios sobre líneas de la PR, que el QA revisa antes de publicar.

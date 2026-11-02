@@ -191,3 +191,9 @@ sesión futura planee contra él.
 `/semana 4` — fuerza el número de sprint.
 `/semana --solo-plan` — hace todo menos tocar Linear: redacta los tickets dentro del documento y escribe el
 plan. Es el modo recomendado las primeras corridas.
+
+## Ejemplo de uso
+
+**Pedido:** /semana armá el sprint que viene.
+
+**Resultado:** Cierra el sprint que termina (velocity real y arrastre) y propone el alcance del siguiente según la capacidad. Con el OK del PO, crea los tickets en Linear y escribe el plan del sprint en `gestion/sprints/`.

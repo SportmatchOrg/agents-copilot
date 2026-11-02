@@ -8,4 +8,4 @@
 - **Colaboradores:** —
 
 ## Notas
-- Es un prompt para pegar (o /comando). Tiene rutas locales de Ignacio (~/Projects/university/...).
+- Generalizado (2026-11-02) a partir de `prompt-auditoria-sportmatch.md`: sin rutas locales, URL, repo y bugs conocidos por argumento, flujos de SportMatch convertidos en categorías genéricas. Formato de comando de Claude Code (`/auditoria-bugs <url> [repo] [bugs-conocidos]`).

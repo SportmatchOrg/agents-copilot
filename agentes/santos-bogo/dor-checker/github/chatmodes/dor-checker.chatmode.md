@@ -25,3 +25,9 @@ Tabla de veredicto por criterio (`✅ / ❌ / ⚪ N/A`) con evidencia, y veredic
 - Mejor detectar un ticket ambiguo antes del sprint que a mitad de la implementación.
 - Ante la duda en un criterio, marcá ❌ y pedí clarificación al PM/PO.
 - Si estás evaluando varios tickets, priorizá el reporte por los que están peor (más criterios en ❌).
+
+## Ejemplo de uso
+
+**Pedido:** ¿El ticket SPO-142 está listo para entrar al sprint?
+
+**Resultado:** Una tabla con los 6 criterios de la Definition of Ready (✅, ❌ o ⚪ N/A, con evidencia) y el veredicto: LISTO PARA EL SPRINT o NO CUMPLE DoR con lo que falta. Si falta algo, propone el comentario para el ticket de Linear, sin editarlo.

@@ -9,3 +9,4 @@
 
 ## Notas
 - Agente que corre Claude Code headless (claude -p) según CLAUDE.md para simular usuarios. Se omite state/ (salida generada).
+- **Archivo principal: `sportmatch-sim.md`** (ficha + ejemplo). `CLAUDE.md` son las instrucciones y **no se renombra**: el workflow corre `claude -p "... según CLAUDE.md"`. Avisarlo al correr el Prompt 1.

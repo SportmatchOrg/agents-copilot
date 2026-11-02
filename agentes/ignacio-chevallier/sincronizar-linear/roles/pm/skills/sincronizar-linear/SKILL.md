@@ -188,3 +188,9 @@ Un issue creado **con milestone** y **con estimate** no necesita nada más que e
 el issue aparece sin épica y hay que rastrearlo a mano; sin estimate, no suma al avance de su milestone.
 
 Después de commitear, el update semanal del proyecto en Linear se arma con [`/update-linear`](../update-linear/SKILL.md).
+
+## Ejemplo de uso
+
+**Pedido:** El PO cargó tickets nuevos: resincronizá Linear y actualizá el Gantt.
+
+**Resultado:** Corre `sync-linear.mjs`, asigna cada issue nuevo a su paquete de la WBS v4 en `linear-wbs-map.csv` (pregunta cuando la descripción no alcanza para decidirlo), regenera el cronograma con `generate-v4.py` y actualiza el tablero semanal de actividades clave. No commitea ni cambia la línea base.

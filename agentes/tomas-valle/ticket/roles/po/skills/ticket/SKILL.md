@@ -240,3 +240,9 @@ Lo que separa un ticket bueno de uno inútil:
 `/ticket <descripción libre>` — el caso normal.
 `/ticket SPO-58` — baja un paquete del backlog WBS a un ticket ejecutable.
 `/ticket --lote` — modo orquestador: devuelve el borrador sin el gate del Paso 5.
+
+## Ejemplo de uso
+
+**Pedido:** /ticket armá el ticket para la pantalla de detalle del partido.
+
+**Resultado:** Un borrador con el RF y el paquete de la WBS, pasos con rutas y snippets verificados contra el repo, criterios de aceptación verificables alineados a los criterios QA y las dependencias. Lo crea en Linear solo después del OK del PO.

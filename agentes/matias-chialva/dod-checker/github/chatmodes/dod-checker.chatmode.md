@@ -24,3 +24,9 @@ Tabla de veredicto por criterio (`✅ / ❌ / ⚪ N/A`) con la evidencia de cada
 - Nunca marques ✅ sin evidencia concreta y verificable.
 - Ante la duda en un AC, marcá ❌ y pedí clarificación.
 - Si el ticket no tiene RF asociado, señalalo (problema de trazabilidad).
+
+## Ejemplo de uso
+
+**Pedido:** Revisá si SPO-150 y su PR #87 cumplen la Definition of Done.
+
+**Resultado:** Una tabla con los criterios de aceptación, la documentación y la deuda nueva (✅, ❌ o ⚪ N/A, con evidencia) y el veredicto: LISTO PARA CERRAR o NO CUMPLE DoD. Si falta algo, propone el comentario para el ticket de Linear, sin cerrarlo.
