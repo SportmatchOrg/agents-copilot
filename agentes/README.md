@@ -76,6 +76,16 @@ Es una pista, no la verdad: quien commitea no siempre es quien diseñó la pieza
 | Matías | 6 | 4 |
 | Santos | 2 | 8 |
 
+## Piezas nuevas
+
+Para crear las que faltan, cada integrante usa [PROMPT-crear-piezas.md](PROMPT-crear-piezas.md). Antes
+de construir una pieza, la reserva acá con un commit a `main`, así nadie hace la misma.
+
+### Ideas reservadas
+
+| Nombre | Tipo | Integrante | Fecha |
+|---|---|---|---|
+
 ## Estado para el Prompt 1
 
 Ya resuelto en cada pieza, para que el Prompt 1 no tenga que inventarlo:
