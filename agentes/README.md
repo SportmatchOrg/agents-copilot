@@ -43,7 +43,7 @@ Prisma, etc., y `brag`/`brag-slim` de `latent-spaces/brag`). No son del grupo.
 archivos de apoyo dentro del chat mode y no cuentan como pieza aparte. `dor-readiness` sí es una
 pieza propia: hace un trabajo distinto al de `dor-checker`.
 
-## Reparto actual (18 piezas)
+## Reparto actual (22 piezas)
 
 | Carpeta | Pieza | Tipo | Repo | Commits por integrante | Colaboradores |
 |---|---|---|---|---|---|
@@ -58,6 +58,10 @@ pieza propia: hace un trabajo distinto al de `dor-checker`.
 | `matias-chialva/` | `pr-review` | skill | agents-copilot | Ignacio Chevallier 2, Matías Chialva 1 | Ignacio Chevallier |
 | `matias-chialva/` | `repo-onboarding` | agente | agents-copilot | Matías Chialva 1 | Tomás Valle, Ignacio Chevallier, Santos Bogo |
 | `matias-chialva/` | `weekly-status` | agente | agents-copilot | Tomás Valle 3, Ignacio Chevallier 2, Santos Bogo 1, Matías Chialva 1 | Tomás Valle, Ignacio Chevallier, Santos Bogo |
+| `matias-chialva/` | `implementar-conmigo` | comando | agents-copilot | pieza nueva | — |
+| `matias-chialva/` | `revisar-para-aprender` | comando | agents-copilot | pieza nueva | — |
+| `matias-chialva/` | `matriz-responsive` | skill | agents-copilot | pieza nueva | — |
+| `matias-chialva/` | `alternativas-pantalla` | skill | agents-copilot | pieza nueva | — |
 | `santos-bogo/` | `dor-checker` | agente | agents-copilot | Santos Bogo 1 | — |
 | `santos-bogo/` | `dor-readiness` | agente | agents-copilot | Tomás Valle 3, Ignacio Chevallier 2, Santos Bogo 1 | Tomás Valle, Ignacio Chevallier |
 | `tomas-valle/` | `pulse` | skill | sportmatch-linktree | Tomás Valle 1 | — |
@@ -73,7 +77,7 @@ Es una pista, no la verdad: quien commitea no siempre es quien diseñó la pieza
 |---|---|---|
 | Ignacio | 5 | 5 |
 | Tomás | 5 | 5 |
-| Matías | 6 | 4 |
+| Matías | 10 | 0 |
 | Santos | 2 | 8 |
 
 ## Piezas nuevas
@@ -90,10 +94,6 @@ de construir una pieza, la reserva acá con un commit a `main`, así nadie hace 
 | `analizar-cambio-alcance` | skill | Ignacio Chevallier | 2026-11-02 |
 | `partir-pr` | comando | Ignacio Chevallier | 2026-11-02 |
 | `estimar-ticket` | skill | Ignacio Chevallier | 2026-11-02 |
-| `implementar-conmigo` | comando | Matías Chialva | 2026-11-03 |
-| `revisar-para-aprender` | comando | Matías Chialva | 2026-11-03 |
-| `entrevista-po-tl` | skill | Matías Chialva | 2026-11-03 |
-| `alternativas-pantalla` | skill | Matías Chialva | 2026-11-03 |
 
 ## Estado para el Prompt 1
 

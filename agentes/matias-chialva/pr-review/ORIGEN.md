@@ -6,6 +6,7 @@
 - **Commits por integrante** (sobre los archivos de la pieza): Ignacio Chevallier 2, Matías Chialva 1
 - **Autor:** Matías Chialva
 - **Colaboradores:** Ignacio Chevallier
+- **Madurez:** usado-en-proyecto
 
 ## Notas
 - Difiere de las copias en sportmatch/.github/skills/pr-review (sin references/) y en sportmatch-linktree/roles/qa/skills/pr-review. Se toma la de agents-copilot (canónica).

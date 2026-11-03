@@ -6,6 +6,7 @@
 - **Commits por integrante** (sobre los archivos de la pieza): Matías Chialva 1
 - **Autor:** Matías Chialva
 - **Colaboradores:** Tomás Valle, Ignacio Chevallier, Santos Bogo
+- **Madurez:** usado-en-proyecto
 
 ## Notas
 - Chat mode de Copilot (uso manual). Incluye su versión automática (workflow) como archivos de apoyo: es el mismo agente con otro disparador, no cuenta como pieza aparte.
