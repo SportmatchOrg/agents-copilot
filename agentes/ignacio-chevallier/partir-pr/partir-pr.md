@@ -84,6 +84,10 @@ No toques la rama original.
 
 ## Ejemplo de uso
 
-**Pedido:** `/partir-pr 145`
+**Pedido:** `/partir-pr 145` (panel de reportes de administración de SportMatch: +1261 líneas, 22 archivos)
 
-**Resultado:** (se completa con la prueba real)
+**Resultado:** Propone 4 PRs. (1) La hoja inferior que se cierra arrastrando (`gesture`,
+`use-drag-to-dismiss`, `bottom-sheet`, ~175 líneas), separada porque cambia **todas** las hojas de la
+app. (2) Los componentes `swipe-row`, `segmented-control`, `badge` y `use-timed-toast` (~420, depende de
+la 1). (3) Tipos, cliente y hooks de reportes (~210, independiente). (4) La pantalla `/admin/reportes`
+con el acceso desde Ajustes (~455, depende de las tres). Incluye los comandos para armar cada rama.

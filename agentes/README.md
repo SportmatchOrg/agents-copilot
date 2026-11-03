@@ -43,7 +43,7 @@ Prisma, etc., y `brag`/`brag-slim` de `latent-spaces/brag`). No son del grupo.
 archivos de apoyo dentro del chat mode y no cuentan como pieza aparte. `dor-readiness` sí es una
 pieza propia: hace un trabajo distinto al de `dor-checker`.
 
-## Reparto actual (22 piezas)
+## Reparto actual (27 piezas)
 
 | Carpeta | Pieza | Tipo | Repo | Commits por integrante | Colaboradores |
 |---|---|---|---|---|---|
@@ -52,6 +52,11 @@ pieza propia: hace un trabajo distinto al de `dor-checker`.
 | `ignacio-chevallier/` | `sincronizar-linear` | skill | sportmatch-linktree | Ignacio Chevallier 7 | — |
 | `ignacio-chevallier/` | `test-agent` | agente | agents-copilot | Ignacio Chevallier 40, Tomás Valle 1 | Tomás Valle |
 | `ignacio-chevallier/` | `update-linear` | skill | sportmatch-linktree | Ignacio Chevallier 1 | — |
+| `ignacio-chevallier/` | `revisar-migracion` | comando | agents-copilot | pieza nueva | — |
+| `ignacio-chevallier/` | `revisar-diseno` | agente | agents-copilot | pieza nueva | — |
+| `ignacio-chevallier/` | `analizar-cambio-alcance` | skill | agents-copilot | pieza nueva | — |
+| `ignacio-chevallier/` | `partir-pr` | comando | agents-copilot | pieza nueva | — |
+| `ignacio-chevallier/` | `estimar-ticket` | skill | agents-copilot | pieza nueva | — |
 | `matias-chialva/` | `context-curator` | agente | agents-copilot | Matías Chialva 1 | Ignacio Chevallier, Tomás Valle, Santos Bogo |
 | `matias-chialva/` | `dod-checker` | agente | agents-copilot | Ignacio Chevallier 1, Matías Chialva 1 | Ignacio Chevallier, Tomás Valle, Santos Bogo |
 | `matias-chialva/` | `pr-business-translator` | agente | agents-copilot | Ignacio Chevallier 1, Matías Chialva 1 | Ignacio Chevallier, Tomás Valle, Santos Bogo |
@@ -75,7 +80,7 @@ Es una pista, no la verdad: quien commitea no siempre es quien diseñó la pieza
 
 | Integrante | Piezas | Faltan para 10 |
 |---|---|---|
-| Ignacio | 5 | 5 |
+| Ignacio | 10 | 0 |
 | Tomás | 5 | 5 |
 | Matías | 10 | 0 |
 | Santos | 2 | 8 |
@@ -89,11 +94,6 @@ de construir una pieza, la reserva acá con un commit a `main`, así nadie hace 
 
 | Nombre | Tipo | Integrante | Fecha |
 |---|---|---|---|
-| `revisar-migracion` | comando | Ignacio Chevallier | 2026-11-02 |
-| `revisar-diseno` | agente | Ignacio Chevallier | 2026-11-02 |
-| `analizar-cambio-alcance` | skill | Ignacio Chevallier | 2026-11-02 |
-| `partir-pr` | comando | Ignacio Chevallier | 2026-11-02 |
-| `estimar-ticket` | skill | Ignacio Chevallier | 2026-11-02 |
 | `implementar-conmigo` | comando | Matías Chialva | 2026-11-03 |
 | `revisar-para-aprender` | comando | Matías Chialva | 2026-11-03 |
 | `entrevista-po-tl` | skill | Matías Chialva | 2026-11-03 |

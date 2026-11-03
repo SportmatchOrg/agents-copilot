@@ -94,6 +94,9 @@ Al final, ofrecé dejar el resumen como comentario en la PR. Mostrá el texto y 
 
 ## Ejemplo de uso
 
-**Pedido:** `/revisar-migracion 82`
+**Pedido:** `/revisar-migracion 82` (la PR que pasó el schema de SportMatch de español a inglés)
 
-**Resultado:** (se completa con la prueba real)
+**Resultado:** "Segura con condiciones". Son renombres hechos a mano, sin pérdida de datos. Pero los 18
+`RENAME CONSTRAINT ..._not_null` solo funcionan en PostgreSQL 18 o más, y como `docker-entrypoint.sh:4`
+corre `migrate deploy` en cada arranque, con una versión anterior el backend no levanta. Entrega las
+consultas `SELECT` para confirmarlo antes del deploy y el camino de vuelta con renombres inversos.

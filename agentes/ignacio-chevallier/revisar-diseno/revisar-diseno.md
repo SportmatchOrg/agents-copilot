@@ -62,6 +62,7 @@ Cada hallazgo cita `archivo:línea` del código **y** la regla del design system
 6. **Estados**: si el componente carga datos o envía algo, ¿tiene loading (skeleton o lo que pida el
    documento), vacío, error y deshabilitado?
 
+Separá lo que **introduce la PR** (líneas `+` del diff) de lo que **ya estaba** en los archivos tocados.
 No revises lógica, tipos, rendimiento ni seguridad: eso es de otras revisiones.
 
 ## Paso 4. Si podés, mirarlo
@@ -77,8 +78,11 @@ preguntar.
 2. **Hallazgos** en una tabla: severidad (`Alta` si se ve roto o bloquea un uso, `Media` si se aparta
    del design system de forma visible, `Baja` si es cosmético o de consistencia) | `archivo:línea` | qué
    pasa | regla (`DESIGN.md §n`) | sugerencia concreta (el token, el componente o la clase a usar).
-3. **Para conversar**: decisiones de diseño discutibles que el documento no cubre. Sin severidad.
-4. **Huecos del design system**: si encontraste un caso que el documento no resuelve, proponé la regla
+3. **Ya estaba antes**: problemas que encontraste en los archivos que la PR toca pero que la PR no
+   introdujo (confirmalo con `git blame`). Misma tabla, sin bloquear la PR: son candidatos a ticket
+   aparte. Priorizá los de responsive, que son los que vuelven como bug.
+4. **Para conversar**: decisiones de diseño discutibles que el documento no cubre. Sin severidad.
+5. **Huecos del design system**: si encontraste un caso que el documento no resuelve, proponé la regla
    que faltaría (no la escribas en el archivo).
 
 Si todo cumple, decilo en una línea. No inventes hallazgos para llenar la tabla.
@@ -92,9 +96,14 @@ comentarios por línea). Mostrá el texto y publicalo **solo con el OK** de quie
 - No aprueba ni mergea la PR.
 - No revisa lógica de negocio, tipos, tests ni seguridad.
 - No juzga el diseño en sí: si el documento lo permite, no es hallazgo.
+- No propone pantallas alternativas (eso lo hace `alternativas-pantalla`) ni recorre la app desplegada
+  en una matriz de tamaños (eso lo hace `matriz-responsive`): lee el diff y el código, antes del merge.
 
 ## Ejemplo de uso
 
-**Pedido:** "Revisá el diseño de la PR 129"
+**Pedido:** "Revisá el diseño de la PR 102" (la que creó la pantalla del mapa de SportMatch)
 
-**Resultado:** (se completa con la prueba real)
+**Resultado:** Un hallazgo Alto: `mapa/page.tsx:22` le resta al mapa la altura de la navegación en
+mobile, en lugar de dejarlo pasar por debajo del chrome flotante como pide `DESIGN.md §4`. Es el bug que
+se arregló cinco semanas después en SPO-305. Además encontró dos Bajos: un `border` en lugar de
+`--ring-glass` (§15) en `match-row.tsx:16` y sombras con valores a mano en `match-pin.tsx:10-14`.

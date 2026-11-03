@@ -24,6 +24,10 @@ Averiguá cómo estima el equipo: escala (Fibonacci, lineal, talles), qué signi
 escrito en algún lado (`AGENTS.md`, `docs/`, plan del sprint) y la velocity reciente. Si el tracker no
 tiene estimaciones cargadas, decilo y usá como referencia el tamaño de las PRs y el tiempo de ciclo.
 
+Mirá la distribución de las estimaciones cerradas. Si casi todo cae en uno o dos valores (por ejemplo,
+nueve de cada diez tickets son de 1 o 2), decilo en el informe: la escala distingue poco, y el número
+aporta menos que el **rango de tamaño de PR y de días** de las referencias, que tenés que mostrar igual.
+
 ## Paso 3. La clase de referencia
 
 1. Traé los tickets **terminados** del proyecto (los últimos 2 o 3 meses alcanzan) con: estimación,
@@ -72,10 +76,15 @@ dejar un comentario con la justificación).
 
 Usá el MCP del tracker si está conectado **al workspace del proyecto** (verificá el equipo o la clave de
 los tickets antes de confiar en los resultados). Si no, usá su API con la clave de una variable de
-entorno (por ejemplo `LINEAR_API_KEY`), sin imprimirla.
+entorno (por ejemplo `LINEAR_API_KEY`), sin imprimirla. Si el equipo guarda un export del tracker en un
+repo (por ejemplo un CSV con ID, estado, estimación e inicio y cierre), también sirve: anotá su fecha.
 
 ## Ejemplo de uso
 
-**Pedido:** "Estimá los tickets del próximo sprint que no tienen puntos"
+**Pedido:** "Estimá SPO-306" (el puntaje de los organizadores se calcula en Node y el mapa tarda ~2 s)
 
-**Resultado:** (se completa con la prueba real)
+**Resultado:** Propone 3 pts (rango 3–5), confianza media-alta, igual a lo que ya tenía cargado.
+Referencias del mismo módulo: SPO-253, la misma función, con una PR chica que igual tardó 3 días; y
+SPO-234, que escribió en Node las reglas que ahora hay que pasar a SQL. Lo que la puede inflar: es el
+primer `$queryRaw` complejo del repo y la paridad exige 0 diferencias. Avisa que el 90 % de los tickets
+son de 1 o 2 pts, así que 3 es el techo práctico de la escala.

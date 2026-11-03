@@ -27,6 +27,8 @@ Buscá el alcance acordado, en este orden, y citá de dónde sale cada cosa (`ar
    `wbs`, `gantt`, `cronograma`, `plan`).
 3. Objetivos o KPIs del MVP.
 4. El backlog y el ciclo actual del tracker: qué está comprometido, cuánta capacidad queda.
+5. **Cambios ya aprobados**: versiones posteriores de la WBS o del plan ("alcance agregado"), actas o
+   guiones de steering, changelog del plan. El alcance vigente es el último aprobado, no el del charter.
 
 Si no encontrás alguno, decilo: el análisis vale menos sin él.
 
@@ -37,11 +39,14 @@ Elegí una:
 | Clase | Cuándo |
 |---|---|
 | **Dentro** | Cumple un criterio de aceptación de un requerimiento existente. No es un cambio. |
+| **Aprobado** | No estaba en el alcance original, pero ya se aprobó como cambio (WBS posterior, acta). |
 | **Extensión** | Mejora un requerimiento existente más allá de sus criterios. |
 | **Nuevo** | No corresponde a ningún requerimiento, pero tampoco está excluido. |
 | **Excluido** | Choca con la lista de fuera de alcance o con una restricción del proyecto. |
 
-Justificá con la cita concreta. Si encaja en **Excluido**, decilo primero y fuerte.
+Justificá con la cita concreta. Si encaja en **Excluido**, decilo primero y fuerte. Si es **Aprobado**,
+no armes un change request: compará lo que se pide (o lo que se implementó) con lo aprobado y su
+estimación, y reportá solo el **desvío** (qué se agregó que no estaba aprobado y cuánto más costó).
 
 ## Paso 4. Impacto
 
@@ -101,6 +106,9 @@ documentación y aclaralo en el informe.
 
 ## Ejemplo de uso
 
-**Pedido:** "¿Entra en el alcance SPO-295, generar la foto de perfil con IA?"
+**Pedido:** "Analizá el alcance de SPO-307" (paginar y comprimir `GET /matches`, cargado como bug)
 
-**Resultado:** (se completa con la prueba real)
+**Resultado:** Clase **Extensión** del paquete 7.1.1. SPO-232 había excluido explícitamente el filtro por
+zona, no hay ningún requerimiento no funcional de rendimiento, y la carga como bug "sin control de
+cambios" no pasó por steering. Estima 3 a 5 SP con referencias del mismo endpoint y recomienda partirlo:
+la compresión (de 1,2 MB a 159 KB) entra ahora y el paginado queda para después de la entrega.
