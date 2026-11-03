@@ -94,6 +94,18 @@ de construir una pieza, la reserva acá con un commit a `main`, así nadie hace 
 | `analizar-cambio-alcance` | skill | Ignacio Chevallier | 2026-11-02 |
 | `partir-pr` | comando | Ignacio Chevallier | 2026-11-02 |
 | `estimar-ticket` | skill | Ignacio Chevallier | 2026-11-02 |
+| `implementar-conmigo` | comando | Matías Chialva | 2026-11-03 |
+| `revisar-para-aprender` | comando | Matías Chialva | 2026-11-03 |
+| `entrevista-po-tl` | skill | Matías Chialva | 2026-11-03 |
+| `alternativas-pantalla` | skill | Matías Chialva | 2026-11-03 |
+| `qa-con-capturas` | agente | Tomás Valle | 2026-11-02 |
+| `usabilidad-sintetica` | agente | Tomás Valle | 2026-11-02 |
+| `pantalla-vs-diseno` | agente | Tomás Valle | 2026-11-02 |
+| `antes-despues-release` | agente | Tomás Valle | 2026-11-02 |
+| `triage-incidente` | agente | Tomás Valle | 2026-11-02 |
+| `guardia-free-tier` | comando | Tomás Valle | 2026-11-02 |
+| `auditar-steering` | skill | Tomás Valle | 2026-11-02 |
+| `explicar-kpi` | skill | Tomás Valle | 2026-11-02 |
 
 ## Estado para el Prompt 1
 
