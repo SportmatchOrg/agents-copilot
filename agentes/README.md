@@ -43,7 +43,7 @@ Prisma, etc., y `brag`/`brag-slim` de `latent-spaces/brag`). No son del grupo.
 archivos de apoyo dentro del chat mode y no cuentan como pieza aparte. `dor-readiness` sí es una
 pieza propia: hace un trabajo distinto al de `dor-checker`.
 
-## Reparto actual (27 piezas)
+## Reparto actual (33 piezas)
 
 | Carpeta | Pieza | Tipo | Repo | Commits por integrante | Colaboradores |
 |---|---|---|---|---|---|
@@ -74,6 +74,12 @@ pieza propia: hace un trabajo distinto al de `dor-checker`.
 | `tomas-valle/` | `semana` | skill | sportmatch-linktree | Tomás Valle 1 | — |
 | `tomas-valle/` | `sportmatch-sim` | agente | sportmatch-sim | Tomás Valle 12 | — |
 | `tomas-valle/` | `ticket` | skill | sportmatch-linktree | Tomás Valle 1 | — |
+| `tomas-valle/` | `qa-con-capturas` | agente | agents-copilot | pieza nueva | — |
+| `tomas-valle/` | `usabilidad-sintetica` | agente | agents-copilot | pieza nueva | — |
+| `tomas-valle/` | `antes-despues-release` | agente | agents-copilot | pieza nueva | — |
+| `tomas-valle/` | `triage-incidente` | agente | agents-copilot | pieza nueva | — |
+| `tomas-valle/` | `auditar-steering` | skill | agents-copilot | pieza nueva | — |
+| `tomas-valle/` | `explicar-kpi` | skill | agents-copilot | pieza nueva | — |
 
 "Commits por integrante" cuenta solo los archivos propios de la pieza, no los de apoyo compartidos.
 Es una pista, no la verdad: quien commitea no siempre es quien diseñó la pieza.
@@ -81,7 +87,7 @@ Es una pista, no la verdad: quien commitea no siempre es quien diseñó la pieza
 | Integrante | Piezas | Faltan para 10 |
 |---|---|---|
 | Ignacio | 10 | 0 |
-| Tomás | 5 | 5 |
+| Tomás | 11 | 0 |
 | Matías | 10 | 0 |
 | Santos | 2 | 8 |
 
@@ -98,14 +104,6 @@ de construir una pieza, la reserva acá con un commit a `main`, así nadie hace 
 | `revisar-para-aprender` | comando | Matías Chialva | 2026-11-03 |
 | `entrevista-po-tl` | skill | Matías Chialva | 2026-11-03 |
 | `alternativas-pantalla` | skill | Matías Chialva | 2026-11-03 |
-| `qa-con-capturas` | agente | Tomás Valle | 2026-11-02 |
-| `usabilidad-sintetica` | agente | Tomás Valle | 2026-11-02 |
-| `pantalla-vs-diseno` | agente | Tomás Valle | 2026-11-02 |
-| `antes-despues-release` | agente | Tomás Valle | 2026-11-02 |
-| `triage-incidente` | agente | Tomás Valle | 2026-11-02 |
-| `guardia-free-tier` | comando | Tomás Valle | 2026-11-02 |
-| `auditar-steering` | skill | Tomás Valle | 2026-11-02 |
-| `explicar-kpi` | skill | Tomás Valle | 2026-11-02 |
 
 ## Estado para el Prompt 1
 
