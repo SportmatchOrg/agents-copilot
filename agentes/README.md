@@ -104,6 +104,16 @@ de construir una pieza, la reserva acá con un commit a `main`, así nadie hace 
 | `revisar-para-aprender` | comando | Matías Chialva | 2026-11-03 |
 | `entrevista-po-tl` | skill | Matías Chialva | 2026-11-03 |
 | `alternativas-pantalla` | skill | Matías Chialva | 2026-11-03 |
+| `contrato-api` | skill | Santos Bogo | 2026-11-04 |
+| `revisar-consultas` | agente | Santos Bogo | 2026-11-04 |
+| `auditar-errores` | comando | Santos Bogo | 2026-11-04 |
+| `revisar-privacidad` | agente | Santos Bogo | 2026-11-04 |
+| `revisar-react-query` | skill | Santos Bogo | 2026-11-04 |
+| `revisar-despliegue` | agente | Santos Bogo | 2026-11-04 |
+| `revisar-ia-app` | skill | Santos Bogo | 2026-11-04 |
+| `revisar-textos` | skill | Santos Bogo | 2026-11-04 |
+| `reglas-de-negocio` | skill | Santos Bogo | 2026-11-04 |
+| `plan-actualizacion` | comando | Santos Bogo | 2026-11-04 |
 
 ## Estado para el Prompt 1
 
