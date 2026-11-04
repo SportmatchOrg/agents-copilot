@@ -43,7 +43,7 @@ Prisma, etc., y `brag`/`brag-slim` de `latent-spaces/brag`). No son del grupo.
 archivos de apoyo dentro del chat mode y no cuentan como pieza aparte. `dor-readiness` sí es una
 pieza propia: hace un trabajo distinto al de `dor-checker`.
 
-## Reparto actual (33 piezas)
+## Reparto actual (43 piezas)
 
 | Carpeta | Pieza | Tipo | Repo | Commits por integrante | Colaboradores |
 |---|---|---|---|---|---|
@@ -69,6 +69,16 @@ pieza propia: hace un trabajo distinto al de `dor-checker`.
 | `matias-chialva/` | `alternativas-pantalla` | skill | agents-copilot | pieza nueva | — |
 | `santos-bogo/` | `dor-checker` | agente | agents-copilot | Santos Bogo 1 | — |
 | `santos-bogo/` | `dor-readiness` | agente | agents-copilot | Tomás Valle 3, Ignacio Chevallier 2, Santos Bogo 1 | Tomás Valle, Ignacio Chevallier |
+| `santos-bogo/` | `contrato-api` | skill | agents-copilot | pieza nueva | — |
+| `santos-bogo/` | `revisar-consultas` | agente | agents-copilot | pieza nueva | — |
+| `santos-bogo/` | `auditar-errores` | comando | agents-copilot | pieza nueva | — |
+| `santos-bogo/` | `revisar-privacidad` | agente | agents-copilot | pieza nueva | — |
+| `santos-bogo/` | `revisar-react-query` | skill | agents-copilot | pieza nueva | — |
+| `santos-bogo/` | `revisar-despliegue` | agente | agents-copilot | pieza nueva | — |
+| `santos-bogo/` | `revisar-ia-app` | skill | agents-copilot | pieza nueva | — |
+| `santos-bogo/` | `revisar-textos` | skill | agents-copilot | pieza nueva | — |
+| `santos-bogo/` | `reglas-de-negocio` | skill | agents-copilot | pieza nueva | — |
+| `santos-bogo/` | `plan-actualizacion` | comando | agents-copilot | pieza nueva | — |
 | `tomas-valle/` | `pulse` | skill | sportmatch-linktree | Tomás Valle 1 | — |
 | `tomas-valle/` | `security-agent` | agente | agents-copilot | Tomás Valle 7 | — |
 | `tomas-valle/` | `semana` | skill | sportmatch-linktree | Tomás Valle 1 | — |
@@ -89,7 +99,7 @@ Es una pista, no la verdad: quien commitea no siempre es quien diseñó la pieza
 | Ignacio | 10 | 0 |
 | Tomás | 11 | 0 |
 | Matías | 10 | 0 |
-| Santos | 2 | 8 |
+| Santos | 12 | 0 |
 
 ## Piezas nuevas
 
@@ -104,16 +114,6 @@ de construir una pieza, la reserva acá con un commit a `main`, así nadie hace 
 | `revisar-para-aprender` | comando | Matías Chialva | 2026-11-03 |
 | `entrevista-po-tl` | skill | Matías Chialva | 2026-11-03 |
 | `alternativas-pantalla` | skill | Matías Chialva | 2026-11-03 |
-| `contrato-api` | skill | Santos Bogo | 2026-11-04 |
-| `revisar-consultas` | agente | Santos Bogo | 2026-11-04 |
-| `auditar-errores` | comando | Santos Bogo | 2026-11-04 |
-| `revisar-privacidad` | agente | Santos Bogo | 2026-11-04 |
-| `revisar-react-query` | skill | Santos Bogo | 2026-11-04 |
-| `revisar-despliegue` | agente | Santos Bogo | 2026-11-04 |
-| `revisar-ia-app` | skill | Santos Bogo | 2026-11-04 |
-| `revisar-textos` | skill | Santos Bogo | 2026-11-04 |
-| `reglas-de-negocio` | skill | Santos Bogo | 2026-11-04 |
-| `plan-actualizacion` | comando | Santos Bogo | 2026-11-04 |
 
 ## Estado para el Prompt 1
 
