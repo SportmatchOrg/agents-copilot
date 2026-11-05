@@ -145,3 +145,13 @@ Al correr el Prompt 1, avisarle:
   no agregárselo, porque el bot lo sacaría de la carpeta como si fuera otra pieza.
 - En los chat modes que traen su versión workflow, el archivo principal es el `.chatmode.md`. El
   `*-workflow.md` es de apoyo.
+
+## Versión final en el catálogo
+
+El Prompt 1 ya se corrió el 2026-11-04. La versión final de las 44 piezas está en la copia local de
+`catalogo-agentes`, rama `g11-carga-inicial`, no en `agentes/`. Solo allá están las descriptions
+reescritas, las referencias con `g11-`, las fichas revisadas, el ejemplo nuevo de `triage-incidente` y
+los nombres de los devs reemplazados por su lane.
+
+No volver a correr el Prompt 1 sobre `agentes/`: se perderían esos cambios. Una vez subidas, las piezas
+se cambian con el Prompt 2 del catálogo.
