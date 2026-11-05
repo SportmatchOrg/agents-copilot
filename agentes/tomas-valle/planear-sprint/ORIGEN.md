@@ -1,4 +1,4 @@
-# Origen: semana
+# Origen: planear-sprint
 
 - **Tipo:** skill
 - **Repo:** SportmatchOrg/sportmatch-linktree @ 30d1785
@@ -6,3 +6,5 @@
 - **Commits por integrante** (sobre los archivos de la pieza): Tomás Valle 1
 - **Autor:** Tomás Valle
 - **Colaboradores:** —
+- **Madurez:** usado-en-proyecto
+- **Nombre original:** `semana` (en sportmatch-linktree sigue con ese nombre)

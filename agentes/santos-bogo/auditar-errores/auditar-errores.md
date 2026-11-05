@@ -1,6 +1,6 @@
 ---
 description: Audita el manejo de errores de punta a punta en una app web con API REST — errores del ORM que terminan en 500, throws genéricos en la lógica de negocio, códigos HTTP mal elegidos y pantallas que no le muestran al usuario qué pasó — y entrega una matriz error → respuesta → mensaje en pantalla con archivo:línea. Pensado para NestJS + Prisma + Next.js, pero sirve para otros stacks. No edita código.
-argument-hint: [módulo | número-de-PR | rama] (vacío = todo el repo)
+argument-hint: "[módulo | número-de-PR | rama] (vacío = todo el repo)"
 ---
 
 # Auditar errores

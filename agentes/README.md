@@ -20,9 +20,11 @@ Los usuarios salen de `integrantes.yml` del catálogo.
    el autor y los colaboradores.
 2. **Reparto**: cada pieza se **mueve** (no se copia) a la carpeta de su autor. Una pieza vive en una
    sola carpeta, así que no hay solapamientos.
-3. **Subida**: cada integrante corre el Prompt 1 de la cátedra con "Carpeta donde están nuestras
-   piezas" = su carpeta y grupo `11`. Para el bloque "Quién hizo cada pieza" se usa el `ORIGEN.md`.
-   El prompt pone el prefijo, la ficha y el ejemplo de uso.
+3. **Subida**: una sola persona corre el Prompt 1 de la cátedra para las 44 piezas, con "Carpeta donde
+   están nuestras piezas" = `agentes/` y grupo `11`, y abre un solo PR. Cada pieza le cuenta a su autor
+   porque el autor sale de la ficha, no de quién hizo el push. Para el bloque "Quién hizo cada pieza" se
+   usa el `ORIGEN.md`. El prompt pone el prefijo, la ficha y el ejemplo de uso. Cada integrante revisa
+   sus filas de la tabla antes de confirmar la subida.
 
 **Criterio de autoría (mixto):** si hay un autor claro, va el que figura en git. Las piezas
 compartidas se reparten por acuerdo y según el rol, siempre que haya habido un aporte real. El resto
@@ -43,7 +45,7 @@ Prisma, etc., y `brag`/`brag-slim` de `latent-spaces/brag`). No son del grupo.
 archivos de apoyo dentro del chat mode y no cuentan como pieza aparte. `dor-readiness` sí es una
 pieza propia: hace un trabajo distinto al de `dor-checker`.
 
-## Reparto actual (43 piezas)
+## Reparto actual (44 piezas)
 
 | Carpeta | Pieza | Tipo | Repo | Commits por integrante | Colaboradores |
 |---|---|---|---|---|---|
@@ -67,6 +69,7 @@ pieza propia: hace un trabajo distinto al de `dor-checker`.
 | `matias-chialva/` | `revisar-para-aprender` | comando | agents-copilot | pieza nueva | — |
 | `matias-chialva/` | `matriz-responsive` | skill | agents-copilot | pieza nueva | — |
 | `matias-chialva/` | `alternativas-pantalla` | skill | agents-copilot | pieza nueva | — |
+| `matias-chialva/` | `ver-pr-en-vivo` | skill | agents-copilot | pieza nueva | — |
 | `santos-bogo/` | `dor-checker` | agente | agents-copilot | Santos Bogo 1 | — |
 | `santos-bogo/` | `dor-readiness` | agente | agents-copilot | Tomás Valle 3, Ignacio Chevallier 2, Santos Bogo 1 | Tomás Valle, Ignacio Chevallier |
 | `santos-bogo/` | `contrato-api` | skill | agents-copilot | pieza nueva | — |
@@ -79,11 +82,11 @@ pieza propia: hace un trabajo distinto al de `dor-checker`.
 | `santos-bogo/` | `revisar-textos` | skill | agents-copilot | pieza nueva | — |
 | `santos-bogo/` | `reglas-de-negocio` | skill | agents-copilot | pieza nueva | — |
 | `santos-bogo/` | `plan-actualizacion` | comando | agents-copilot | pieza nueva | — |
-| `tomas-valle/` | `pulse` | skill | sportmatch-linktree | Tomás Valle 1 | — |
+| `tomas-valle/` | `radar-de-sprint` | skill | sportmatch-linktree | Tomás Valle 1 | — |
 | `tomas-valle/` | `security-agent` | agente | agents-copilot | Tomás Valle 7 | — |
-| `tomas-valle/` | `semana` | skill | sportmatch-linktree | Tomás Valle 1 | — |
+| `tomas-valle/` | `planear-sprint` | skill | sportmatch-linktree | Tomás Valle 1 | — |
 | `tomas-valle/` | `sportmatch-sim` | agente | sportmatch-sim | Tomás Valle 12 | — |
-| `tomas-valle/` | `ticket` | skill | sportmatch-linktree | Tomás Valle 1 | — |
+| `tomas-valle/` | `redactar-ticket` | skill | sportmatch-linktree | Tomás Valle 1 | — |
 | `tomas-valle/` | `qa-con-capturas` | agente | agents-copilot | pieza nueva | — |
 | `tomas-valle/` | `usabilidad-sintetica` | agente | agents-copilot | pieza nueva | — |
 | `tomas-valle/` | `antes-despues-release` | agente | agents-copilot | pieza nueva | — |
@@ -98,7 +101,7 @@ Es una pista, no la verdad: quien commitea no siempre es quien diseñó la pieza
 |---|---|---|
 | Ignacio | 10 | 0 |
 | Tomás | 11 | 0 |
-| Matías | 10 | 0 |
+| Matías | 11 | 0 |
 | Santos | 12 | 0 |
 
 ## Piezas nuevas
@@ -126,11 +129,19 @@ Ya resuelto en cada pieza, para que el Prompt 1 no tenga que inventarlo:
 
 Al correr el Prompt 1, avisarle:
 
+- **DATOS:** autor, colaboradores y madurez salen del `ORIGEN.md` de cada pieza; nombres y usuarios, de
+  la tabla de arriba.
+- **Carpetas:** el bot busca el archivo principal en la raíz de la pieza. Las skills que están en
+  `roles/*/skills/<nombre>/` o `github/skills/<nombre>/` suben todo ese contenido a la raíz, con sus
+  `references/` y `scripts/`.
 - **`sportmatch-sim`**: el archivo principal es `sportmatch-sim.md`. `CLAUDE.md` **no se renombra**,
   porque el workflow corre `claude -p "... según CLAUDE.md"`.
 - **`qa-review`** depende de la skill `pr-review` (de Matías) y no la trae copiada, para no duplicarla.
   Es una "referencia a revisar" del paso 6, no algo que haya que cambiar.
+- **`planear-sprint`** carga `redactar-ticket` por ruta. Esa ruta ya tiene el nombre final
+  (`.claude/skills/g11-redactar-ticket/SKILL.md`): no marcarla como referencia a cambiar.
 - **`pr-review`** tiene `name: pr-review-sportmatch` y pasa a `g11-pr-review`. Copilot code review la
-  busca por carpeta, así que no se rompe nada.
+  busca por carpeta, así que no se rompe nada. Su `references/qa-criteria.md` no lleva `name` a propósito:
+  no agregárselo, porque el bot lo sacaría de la carpeta como si fuera otra pieza.
 - En los chat modes que traen su versión workflow, el archivo principal es el `.chatmode.md`. El
   `*-workflow.md` es de apoyo.

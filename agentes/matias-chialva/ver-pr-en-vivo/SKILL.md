@@ -129,3 +129,9 @@ Las capturas y los GIF no se borran.
 - No corre contra dev ni prod: solo local.
 - No usa cuentas ni credenciales reales.
 - No arregla el código de la PR: muestra lo que hace y, si se lo piden, propone el arreglo.
+
+## Ejemplo de uso
+
+**Pedido:** Mostrame funcionando la PR 66 del repo en `~/proyectos/mi-app`. Quiero ver el registro.
+
+**Resultado:** Arma el guion de la demo desde el diff, levanta esa versión en local sin tocar el repo, espera a que haya sesión y recorre los flujos en el navegador. Deja capturas y un GIF por flujo, y resume qué se vio, qué no se pudo ver y qué no coincide con el ticket.

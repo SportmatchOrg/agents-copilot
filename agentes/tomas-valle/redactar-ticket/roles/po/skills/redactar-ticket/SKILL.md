@@ -1,14 +1,14 @@
 ---
-name: ticket
+name: redactar-ticket
 description: Redacta un ticket de SportMatch listo para que un dev lo ejecute sin preguntar nada — referencia RF/WBS, pasos con snippets reales del repo, criterios de aceptación verificables y dependencias. Verifica cada ruta de archivo contra el repo antes de escribirla, muestra el borrador y crea en Linear solo con el OK del PO. Usar cuando el PO pida "armá un ticket para X", "pasá esto a Linear", "escribí el ticket de la pantalla Y", o quiera bajar un paquete de la WBS a algo ejecutable.
 ---
 
-# /ticket — redactar un ticket ejecutable
+# /redactar-ticket — redactar un ticket ejecutable
 
 Un ticket bien escrito es el que un dev abre y ejecuta **sin volver a preguntar**. Eso se logra de una sola
 forma: nombrando archivos que existen y criterios que alguien más puede verificar.
 
-**Escribe en Linear solo después del OK explícito del PO.** Invocar `/ticket` no es aprobación.
+**Escribe en Linear solo después del OK explícito del PO.** Invocar `/redactar-ticket` no es aprobación.
 
 ## Qué NO hace
 
@@ -177,7 +177,7 @@ lane · label · N SP · assignee · bloqueado por SPO-### · bloquea a SPO-###
 
 **Parar acá.** No crear nada. Si el PO pide cambios, se corrige y se vuelve a mostrar.
 
-En **modo lote** (invocado desde `/semana`), saltear este paso: el OK ya se dio sobre el alcance de la semana.
+En **modo lote** (invocado desde `/planear-sprint`), saltear este paso: el OK ya se dio sobre el alcance de la semana.
 
 ## Paso 6 — Crear en Linear
 
@@ -237,12 +237,12 @@ Lo que separa un ticket bueno de uno inútil:
 
 ## Argumentos
 
-`/ticket <descripción libre>` — el caso normal.
-`/ticket SPO-58` — baja un paquete del backlog WBS a un ticket ejecutable.
-`/ticket --lote` — modo orquestador: devuelve el borrador sin el gate del Paso 5.
+`/redactar-ticket <descripción libre>` — el caso normal.
+`/redactar-ticket SPO-58` — baja un paquete del backlog WBS a un ticket ejecutable.
+`/redactar-ticket --lote` — modo orquestador: devuelve el borrador sin el gate del Paso 5.
 
 ## Ejemplo de uso
 
-**Pedido:** /ticket armá el ticket para la pantalla de detalle del partido.
+**Pedido:** /redactar-ticket armá el ticket para la pantalla de detalle del partido.
 
 **Resultado:** Un borrador con el RF y el paquete de la WBS, pasos con rutas y snippets verificados contra el repo, criterios de aceptación verificables alineados a los criterios QA y las dependencias. Lo crea en Linear solo después del OK del PO.

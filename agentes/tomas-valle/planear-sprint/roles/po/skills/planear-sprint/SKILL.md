@@ -1,9 +1,9 @@
 ---
-name: semana
+name: planear-sprint
 description: Planea el sprint que viene de SportMatch. Cierra el que termina (velocity real y arrastre), decide el alcance cruzando el plan, el repo, la WBS y los diseños, lo pone a consideración del PO, y con su OK redacta y crea los tickets en Linear y escribe el plan de sprint. Usar cuando el PO pida planear la semana, armar el sprint que viene, "qué hacemos la semana que viene", o el jueves cuando cierra un sprint.
 ---
 
-# /semana — planear el sprint que viene
+# /planear-sprint — planear el sprint que viene
 
 Decide qué se hace la semana que viene y lo deja ejecutable: tickets creados en Linear y el plan escrito
 en `gestion/sprints/`.
@@ -33,12 +33,12 @@ Es la única skill del workspace que escribe en Linear. Tratarla en consecuencia
    jueves→jueves son cuatro, no cinco: el S5 arranca el 10/09 y cierra con la demo, y después no hay nada.
    Freeze de features: viernes 11/09.
 
-Si hoy no es jueves, `/semana` sigue siendo válida — se está planeando en adelanto y el arrastre del Paso 2
+Si hoy no es jueves, `/planear-sprint` sigue siendo válida — se está planeando en adelanto y el arrastre del Paso 2
 es una proyección, no un hecho. Decirlo.
 
 ## Paso 2 — Cerrar el que termina
 
-Misma recolección que `/pulse`, en paralelo:
+Misma recolección que `/radar-de-sprint`, en paralelo:
 
 - **Linear:** `list_issues` del proyecto SportMatch con
   `fields: ["title","status","assignee","estimate","updatedAt","labels","dueDate"]`.
@@ -75,7 +75,7 @@ Seis fuentes, en este orden. Ninguna sola alcanza:
    construye entera o no se construye.
    **No se planifica una versión simplificada de una pantalla diseñada** para "ganar tiempo": eso se
    reescribe después y cuesta el doble. Si una pantalla no entra en la semana, se corre entera a la
-   siguiente. Ver `.claude/skills/ticket/SKILL.md`, sección "Las pantallas se construyen como están
+   siguiente. Ver `.claude/skills/g11-redactar-ticket/SKILL.md`, sección "Las pantallas se construyen como están
    diseñadas".
 6. **Los tickets en pausa** — Canceled con nota arriba (SPO-160 tema visual, SPO-162 ciudad). No están
    descartados: se reabren cuando se toma la decisión que los frenó. **Preguntarle al PO si ya se tomó**,
@@ -124,13 +124,13 @@ Con el OK, seguir. Sin el OK, parar — todavía no se escribió nada.
 
 ## Paso 6 — Redactar los tickets, secuencial
 
-Cargar `.claude/skills/ticket/SKILL.md` y aplicar sus **Pasos 0 a 4** a cada ticket de la lista aprobada,
+Cargar `.claude/skills/g11-redactar-ticket/SKILL.md` y aplicar sus **Pasos 0 a 4** a cada ticket de la lista aprobada,
 **uno por uno, en esta sesión**. No despachar subagentes.
 
 Secuencial a propósito: cada ticket ve los anteriores, y así las dependencias cruzadas quedan finas y las
 referencias entre hermanos ("misma estructura que el ticket de `partidos` de esta semana") salen bien.
 
-El Paso 5 de `/ticket` se saltea: el OK ya se dio sobre el alcance.
+El Paso 5 de `/redactar-ticket` se saltea: el OK ya se dio sobre el alcance.
 
 ## Paso 7 — Crear en Linear
 
@@ -187,13 +187,13 @@ sesión futura planee contra él.
 
 ## Argumentos
 
-`/semana` — planea el que viene.
-`/semana 4` — fuerza el número de sprint.
-`/semana --solo-plan` — hace todo menos tocar Linear: redacta los tickets dentro del documento y escribe el
+`/planear-sprint` — planea el que viene.
+`/planear-sprint 4` — fuerza el número de sprint.
+`/planear-sprint --solo-plan` — hace todo menos tocar Linear: redacta los tickets dentro del documento y escribe el
 plan. Es el modo recomendado las primeras corridas.
 
 ## Ejemplo de uso
 
-**Pedido:** /semana armá el sprint que viene.
+**Pedido:** /planear-sprint armá el sprint que viene.
 
 **Resultado:** Cierra el sprint que termina (velocity real y arrastre) y propone el alcance del siguiente según la capacidad. Con el OK del PO, crea los tickets en Linear y escribe el plan del sprint en `gestion/sprints/`.

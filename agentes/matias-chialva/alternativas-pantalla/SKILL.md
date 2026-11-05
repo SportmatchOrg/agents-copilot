@@ -104,3 +104,9 @@ texto y crealas **solo con el OK** del usuario.
 - No revisa el diff de una PR contra las reglas (eso lo hace `revisar-diseno`) ni prueba responsive en
   todas las pantallas (eso lo hace `matriz-responsive`).
 - No cambia datos de la app.
+
+## Ejemplo de uso
+
+**Pedido:** La pantalla de detalle del partido se ve rara al lado del resto. Compará `/partidos/[id]` con sus pantallas hermanas y proponé alternativas.
+
+**Resultado:** Lista las discrepancias con evidencia (`archivo:línea`, pantalla hermana y regla del design system), arma 2 o 3 prototipos HTML descartables con los tokens del repo y entrega `comparativa.html` con el cuadro de diferencias y su recomendación, sin tocar el código.

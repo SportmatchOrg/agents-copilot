@@ -1,5 +1,4 @@
 ---
-name: qa-criteria-sportmatch
 description: Criterios de QA de SportMatch (QA-01 … QA-10) para la review asistida de PRs. NO se carga automáticamente en la review nativa de Copilot; solo la invoca explícitamente el QA PR Review Agent.
 ---
 

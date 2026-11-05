@@ -1,6 +1,6 @@
 ---
 name: revisar-privacidad
-description: Revisa la privacidad de los datos personales en una app web con API REST — qué campos devuelve cada endpoint a otros usuarios (mail, ubicación exacta, teléfono, IDs externos), qué se escribe en logs y qué se manda a terceros como proveedores de IA — contra las reglas de visibilidad del proyecto. Distinto de una revisión de seguridad: no busca accesos indebidos, busca respuestas permitidas que muestran de más. No edita código.
+description: "Revisa la privacidad de los datos personales en una app web con API REST — qué campos devuelve cada endpoint a otros usuarios (mail, ubicación exacta, teléfono, IDs externos), qué se escribe en logs y qué se manda a terceros como proveedores de IA — contra las reglas de visibilidad del proyecto. Distinto de una revisión de seguridad: no busca accesos indebidos, busca respuestas permitidas que muestran de más. No edita código."
 tools: Read, Grep, Glob, Bash
 ---
 

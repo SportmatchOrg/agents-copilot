@@ -6,6 +6,7 @@
 - **Commits por integrante** (sobre los archivos de la pieza): Santos Bogo 1
 - **Autor:** Santos Bogo
 - **Colaboradores:** —
+- **Madurez:** usado-en-proyecto
 
 ## Notas
 - Chat mode de Copilot (uso manual). Su versión automática es la pieza dor-readiness: prompt distinto, separada a propósito.

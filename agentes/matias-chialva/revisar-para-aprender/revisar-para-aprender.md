@@ -108,3 +108,9 @@ Guardala fuera del repo, o en una carpeta que el dev elija y que no se versione 
 - No reescribe el código del dev ni escribe los tests por él: muestra alternativas y las describe.
 - No califica ni compara al dev con otros.
 - No publica nada en GitHub ni en Linear sin OK.
+
+## Ejemplo de uso
+
+**Pedido:** `/revisar-para-aprender 149`
+
+**Resultado:** Elige las 3 a 6 decisiones más instructivas de la PR, le pregunta al dev por algunas antes de explicarlas y entrega una lección HTML corta con alternativas, el principio en juego, la mirada de QA y preguntas de repaso. No aprueba ni bloquea la PR.

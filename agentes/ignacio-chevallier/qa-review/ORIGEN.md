@@ -8,6 +8,7 @@
 - **Commits por integrante** (sobre los archivos de la pieza): Ignacio Chevallier 13, Tomás Valle 2, Matías Chialva 1
 - **Autor:** Ignacio Chevallier
 - **Colaboradores:** Tomás Valle, Matías Chialva
+- **Madurez:** usado-en-proyecto
 
 ## Notas
 - Scout y Reviewer son dos fases del mismo pipeline (no se usan por separado): una sola pieza.

@@ -1,6 +1,6 @@
 ---
 name: matriz-responsive
-description: QA de responsive sobre una app web desplegada (dev o preview). Recorre todas las pantallas en una matriz de tamaños (de 320 px a 1920 px, horizontal, zoom 200% y fuente grande), detecta scroll horizontal, elementos fuera de pantalla, superpuestos, controles chicos y texto cortado, mira cada captura y encuentra la causa en el código con el arreglo concreto. Usar para validar el requisito de responsividad antes de un release o entre sprints. Solo navega: no crea ni borra datos.
+description: "QA de responsive sobre una app web desplegada (dev o preview). Recorre todas las pantallas en una matriz de tamaños (de 320 px a 1920 px, horizontal, zoom 200% y fuente grande), detecta scroll horizontal, elementos fuera de pantalla, superpuestos, controles chicos y texto cortado, mira cada captura y encuentra la causa en el código con el arreglo concreto. Usar para validar el requisito de responsividad antes de un release o entre sprints. Solo navega: no crea ni borra datos."
 ---
 
 # Matriz responsive
@@ -133,3 +133,9 @@ Alta y Media: mostrá el texto (título, pasos, tamaño, captura, causa y arregl
 - No modifica el código ni el design system: propone el arreglo.
 - No ve ni guarda credenciales.
 - No corre contra producción sin pedido explícito.
+
+## Ejemplo de uso
+
+**Pedido:** Corré la matriz responsive sobre `https://dev.mi-app.com` antes del release.
+
+**Resultado:** Recorre cada ruta en los 9 casos de la matriz y entrega `informe.html` con la grilla de capturas y los hallazgos por severidad, con `archivo:línea` y arreglo sugerido, más `resultado.json` para comparar la próxima corrida. Solo navega: no cambia datos ni código.

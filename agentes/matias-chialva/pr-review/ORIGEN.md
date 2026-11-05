@@ -11,3 +11,4 @@
 ## Notas
 - Difiere de las copias en sportmatch/.github/skills/pr-review (sin references/) y en sportmatch-linktree/roles/qa/skills/pr-review. Se toma la de agents-copilot (canónica).
 - La usa también el agente qa-review como criterio del Reviewer.
+- `references/qa-criteria.md` no lleva `name` en esta copia (en `agents-copilot` sí): el bot del catálogo toma cualquier `.md` con `name` como pieza y lo sacaría de la carpeta.

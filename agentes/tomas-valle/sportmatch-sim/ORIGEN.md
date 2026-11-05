@@ -6,6 +6,7 @@
 - **Commits por integrante** (sobre los archivos de la pieza): Tomás Valle 12
 - **Autor:** Tomás Valle
 - **Colaboradores:** —
+- **Madurez:** usado-en-proyecto
 
 ## Notas
 - Agente que corre Claude Code headless (claude -p) según CLAUDE.md para simular usuarios. Se omite state/ (salida generada).

@@ -1,6 +1,6 @@
 ---
 description: Arma un plan para actualizar las dependencias de un proyecto npm (una o varias apps en el mismo repo). Detecta qué está desactualizado, lee los changelogs de las versiones mayores, busca en el código los usos que se rompen, ordena las actualizaciones en tandas que se puedan mergear por separado y estima el riesgo de cada una. No instala ni cambia nada sin OK.
-argument-hint: [carpeta-o-app] [paquete] (vacío = todas las apps del repo)
+argument-hint: "[carpeta-o-app] [paquete] (vacío = todas las apps del repo)"
 ---
 
 # Plan de actualización

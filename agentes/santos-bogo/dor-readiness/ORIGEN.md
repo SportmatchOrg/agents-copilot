@@ -8,6 +8,7 @@
 - **Commits por integrante** (sobre los archivos de la pieza): Tomás Valle 3, Ignacio Chevallier 2, Santos Bogo 1
 - **Autor:** Santos Bogo
 - **Colaboradores:** Tomás Valle, Ignacio Chevallier
+- **Madurez:** usado-en-proyecto
 
 ## Notas
 - Distinto del chat mode dor-checker: este revisa todo el backlog semanal y solo marca AC no verificables.

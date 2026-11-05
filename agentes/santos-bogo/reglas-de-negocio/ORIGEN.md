@@ -18,5 +18,5 @@
 ## Notas
 
 Pieza de PO: responde "¿qué pasa si…?" con el código como evidencia y deja las decisiones implícitas
-como preguntas. Distinta de `dor-checker` y `dod-checker`, que miran un ticket, y de `ticket` (Tomás),
+como preguntas. Distinta de `dor-checker` y `dod-checker`, que miran un ticket, y de `redactar-ticket` (Tomás),
 que redacta tickets: esta documenta cómo funciona hoy el producto.

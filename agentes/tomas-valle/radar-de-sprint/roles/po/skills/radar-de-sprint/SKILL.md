@@ -1,9 +1,9 @@
 ---
-name: pulse
+name: radar-de-sprint
 description: Radar de mitad de sprint de SportMatch. Cruza el plan de la semana con el estado real en Linear, las PRs de GitHub y el repo, y reporta qué va a entrar, qué está en riesgo y qué hacer hoy. Usar cuando el PO pida el estado del sprint, "cómo venimos", un chequeo de avance, o antes de una review o una daily.
 ---
 
-# /pulse — radar de mitad de sprint
+# /radar-de-sprint — radar de mitad de sprint
 
 Reporte de control para el PO. **Es un radar, no un robot:** lee y reporta, nunca escribe.
 
@@ -113,11 +113,11 @@ RUIDO (si hay)
 - **Sin adornos.** Ni felicitaciones, ni "buen trabajo equipo", ni resumen de lo que ya está bien salvo que
   cambie una decisión. El PO lee esto para saber dónde meter la mano.
 - **Contra el 17/09.** Si algo compromete la demo y no solo la semana, decirlo aparte.
-- Con argumento (`/pulse pache`, `/pulse SPO-164`), acotar el reporte a esa lane o ese ticket, con los
+- Con argumento (`/radar-de-sprint pache`, `/radar-de-sprint SPO-164`), acotar el reporte a esa lane o ese ticket, con los
   mismos cruces.
 
 ## Ejemplo de uso
 
-**Pedido:** /pulse ¿cómo venimos con el sprint?
+**Pedido:** /radar-de-sprint ¿cómo venimos con el sprint?
 
 **Resultado:** Un reporte de solo lectura que cruza el plan del sprint con Linear, las PRs abiertas y mergeadas y los commits: qué va a entrar al cierre del jueves, qué está en riesgo y qué hacer hoy. Las acciones quedan propuestas para que las ejecute el PO.

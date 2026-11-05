@@ -118,3 +118,9 @@ lo que aprendió, sugerí `/revisar-para-aprender` sobre la rama.
 - No hace push, no abre PRs, no mergea ni escribe en Linear sin OK.
 - No toca código fuera del alcance del ticket; si encuentra algo para mejorar, lo propone como tarea
   aparte.
+
+## Ejemplo de uso
+
+**Pedido:** `/implementar-conmigo SPO-271`
+
+**Resultado:** Trae el ticket, explica el plan con la fuente de cada parte (ticket, repo, precedente o libre), espera las decisiones libres del dev y construye en tramos, con el test primero. Deja commits locales con tests en verde, el registro de decisiones y una propuesta de descripción de PR; no hace push sin OK.
